@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import shutil
 import threading
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from qdrant_edge import (
     CountRequest,

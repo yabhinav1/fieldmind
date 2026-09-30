@@ -4,15 +4,19 @@ Start the cloud and both devices first (see README), then:
 
     python scripts/scenario.py [PIN]
 
+Set FIELDMIND_A and FIELDMIND_B to test devices on other addresses.
+
 The PIN defaults to 2468. A device that has no PIN yet is given this one.
 """
 
+import os
 import sys
 import time
 
 import httpx
 
-A, B = "http://127.0.0.1:8001", "http://127.0.0.1:8002"
+A = os.environ.get("FIELDMIND_A", "http://127.0.0.1:8001")
+B = os.environ.get("FIELDMIND_B", "http://127.0.0.1:8002")
 PIN = sys.argv[1] if len(sys.argv) > 1 else "2468"
 failures = []
 sessions = {}

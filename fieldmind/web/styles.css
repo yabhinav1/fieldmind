@@ -304,6 +304,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .source:hover .source-text { color: var(--text); text-decoration: underline; }
 .source-n { font-family: var(--mono); font-size: 11px; width: 18px; height: 18px; border-radius: 50%; background: var(--neutral-bg); display: inline-grid; place-items: center; }
 .source-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.answer-note { margin-top: 10px; font-size: 12px; color: var(--muted); }
 
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { border: 1px solid var(--line); background: var(--surface); padding: 4px 12px; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); }
@@ -364,6 +365,16 @@ td.num, th.num { text-align: right; }
 .history { margin-top: 18px; }
 .history-item { padding: 10px 0 10px 14px; border-left: 2px solid var(--line); margin-left: 4px; }
 .history-item.current { border-left-color: var(--accent); }
+
+.guide-step { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); }
+.guide-step:first-of-type { border-top: 0; }
+.guide-mark { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: 13px; font-weight: 700; color: var(--muted); }
+.guide-step.done .guide-mark { background: var(--good); border-color: var(--good); color: var(--surface); }
+.guide-step.next .guide-mark { border-color: var(--accent); color: var(--accent); }
+.guide-step h3 { margin: 2px 0 2px; font-size: 14px; font-weight: 650; }
+.guide-step p { color: var(--muted); font-size: 13px; }
+.guide-step .btn { margin-top: 8px; }
+.guide-progress { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 .mono { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 
 .lock { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: grid; place-items: center; padding: 16px; }

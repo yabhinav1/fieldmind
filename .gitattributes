@@ -1,0 +1,12 @@
+* text=auto
+
+# Files read inside Linux containers keep Unix line endings on every OS.
+Dockerfile text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+requirements*.txt text eol=lf
+
+*.png binary
+*.gif binary
+*.pdf binary
+*.pptx binary

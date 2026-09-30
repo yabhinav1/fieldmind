@@ -1,12 +1,23 @@
 # FieldMind
 
-Offline-first memory for field technicians, built on **Qdrant Edge**.
+[![tests](https://github.com/yabhinav1/fieldmind/actions/workflows/tests.yml/badge.svg)](https://github.com/yabhinav1/fieldmind/actions/workflows/tests.yml)
+
+Offline-first memory for field technicians, built on **Qdrant Edge**. By Team Compilers.
 
 A technician records what they see and do. The device remembers it, searches it in about a millisecond with no network, answers questions from it, decides by itself what is safe to share, and syncs with the rest of the fleet through Qdrant Server whenever a connection exists.
 
 Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 
-![Working offline: a note is classified and masked on the device while search and answers keep running](docs/img/offline-work.png)
+![FieldMind walkthrough: go offline, record notes, search and ask, reconnect, resolve a conflict](docs/img/demo.gif)
+
+## For judges
+
+| If you have | Do this |
+|---|---|
+| 2 minutes | Read the [deck (PDF)](docs/FieldMind-Compilers.pdf) and the walkthrough above. |
+| 5 minutes | Read [how each line of the problem statement is met](docs/requirements.md), with the code and the test that proves it. |
+| 10 minutes | Run it: `docker compose --profile demo up --build`, open http://localhost:8001 and http://localhost:8002 (PIN `2468`), and click **Demo guide** in the top right. |
+| A question | [Pitch notes](docs/pitch.md) answer the ones we expect: why two shards, how snapshots are used, what stops devices overwriting each other. |
 
 ## What it does
 
@@ -14,7 +25,7 @@ Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 |---|---|
 | Searchable semantic memory on the device | Two Qdrant Edge shards run inside the app process. No database server on the device. |
 | Low-latency vector and hybrid search without network | Dense vectors (bge-small, ONNX, on CPU) plus Qdrant Edge's built-in BM25. About 1 ms per search. |
-| Reason over local information | A 3B language model on the device phrases answers from the notes search found, with citations. No cloud call. |
+| Reason over local information | A 3B language model on the device phrases answers from the notes search found, with citations. Every number in a generated answer is checked against the note it cites; if it does not match, the device quotes the notes instead. No cloud call. |
 | Decide what stays local and what syncs | A policy engine classifies every note on the device. Private notes stay, useful notes are shared, and notes that mix both are shared with names and contact details masked. |
 | Work through intermittent connectivity | Every change goes to a durable outbox first. It survives restarts and replays when the link returns, urgent items first. |
 | Sync with Qdrant Server | Uploads are compare-and-swap writes. Small downloads use a manifest diff. A device that is far behind restores its replica from a Qdrant Server shard snapshot. |
@@ -22,25 +33,32 @@ Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 | Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN. |
 | A meaningful edge-to-cloud workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes flow back to the fleet. |
 
+[docs/requirements.md](docs/requirements.md) maps each goal to its code and tests.
+
 ## Architecture
 
-```
-  Edge device (one process)                          Cloud
- ┌───────────────────────────────────────┐        ┌──────────────────────┐
- │ Dashboard + API (FastAPI, PIN lock)   │        │ Qdrant Server        │
- │                                       │        │ collection:          │
- │ Policy engine ── private / shared /   │        │   fleet_memory       │
- │   name model     shared with masking  │  push  │                      │
- │                                       │ ─────► │  shared notes        │
- │ Qdrant Edge                           │  CAS   │  masked notes        │
- │  ├─ local shard    written here       │        │  headquarters        │
- │  └─ replica shard  copy of the cloud  │ ◄───── │  manuals             │
- │                                       │  diff  │                      │
- │ Embeddings  bge-small (ONNX) + BM25   │   or   └──────────────────────┘
- │ Answers     llama3.2 3B (optional)    │ snapshot          ▲
- │ Journal     SQLite: outbox, conflicts │                   │
- │ Sync engine background loop           │           other edge devices
- └───────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph device["Edge device, one process"]
+    ui["Dashboard and API<br/>behind a PIN"]
+    policy["Policy engine<br/>name model + classifier"]
+    subgraph edge["Qdrant Edge"]
+      local[("Local shard<br/>written here, private too")]
+      replica[("Replica shard<br/>copy of cloud knowledge")]
+    end
+    journal["Journal (SQLite)<br/>outbox and conflicts"]
+    llm["Answer model<br/>llama3.2 3B, optional"]
+  end
+  cloud[("Qdrant Server<br/>fleet_memory")]
+  others["Other edge devices"]
+
+  ui --> policy --> local
+  policy --> journal
+  local -- "push: compare-and-swap" --> cloud
+  cloud -- "pull: diff or snapshot" --> replica
+  local --> llm
+  replica --> llm
+  others <--> cloud
 ```
 
 **Why two shards.** The local shard holds what this device wrote, including everything private. The replica shard is a disposable copy of cloud knowledge. The replica can be wiped and rebuilt from a snapshot at any time without touching a single private note.
@@ -67,6 +85,8 @@ The policy runs on the device in about 20 ms and combines three kinds of evidenc
 
 Vectors uploaded for a masked note are computed from the masked text, so the embedding cannot leak what the text hides. A person can always override a decision, except to share a credential.
 
+![Working offline: a note is classified and masked on the device while search and answers keep running](docs/img/offline-work.png)
+
 ## How sync handles change
 
 Every memory carries a revision number. The device remembers which cloud revision each local change was based on.
@@ -86,7 +106,33 @@ Every memory carries a revision number. The device remembers which cloud revisio
 
 ## Run it
 
-Requirements: Windows, Python 3.10 or newer, Docker Desktop. About 3 GB of free disk space, or 1 GB without the language model.
+### Any OS, one command
+
+Needs Docker. About 2 GB of free disk space.
+
+```bash
+docker compose --profile demo up --build
+```
+
+This starts Qdrant Server and two edge devices in Linux containers:
+
+- edge-a at http://localhost:8001
+- edge-b at http://localhost:8002
+
+The PIN is `2468`. The first start downloads the embedding and name models (about 235 MB). Click **Demo guide** in the top right of either dashboard.
+
+In this mode answers are composed from the notes; the language model runs in the Windows setup below.
+
+To cut a device's network for real, rather than with the Network switch:
+
+```bash
+docker network disconnect fieldmind_uplink fieldmind-edge-a
+docker network connect    fieldmind_uplink fieldmind-edge-a
+```
+
+### Windows, with the on-device language model
+
+Needs Python 3.10 or newer and Docker Desktop. About 3 GB of free disk space.
 
 ```powershell
 py -m venv .venv
@@ -95,24 +141,15 @@ py -m venv .venv
 .\scripts\start.ps1
 ```
 
-This starts Qdrant Server in Docker, the language model if it was downloaded, and two devices, then opens both dashboards:
+This starts Qdrant Server in Docker, the language model if it was downloaded, and both devices, then opens the dashboards. Each device asks you to choose a PIN the first time; `.\scripts\start.ps1 -Pin 2468` pre-sets it.
 
-- edge-a at http://127.0.0.1:8001
-- edge-b at http://127.0.0.1:8002
+| Command | What it does |
+|---|---|
+| `.\.venv\Scripts\python.exe -m fieldmind doctor` | Preflight: checks models, cloud, language model and devices, and says whether the demo can run with no internet |
+| `.\scripts\reset.ps1` | Clean slate between demo runs |
+| `.\scripts\stop.ps1` | Stop the devices. Add `-All` for the language model and containers too |
 
-Each device asks you to choose a PIN the first time. To pre-set it, run `.\scripts\start.ps1 -Pin 2468`.
-
-The embedding and name models (about 235 MB) download once on first start. After that the devices start and run with no internet.
-
-Stop with `.\scripts\stop.ps1`. Add `-All` to stop the language model and the containers too.
-
-To start clean:
-
-```powershell
-.\scripts\stop.ps1
-.\.venv\Scripts\python.exe -m fieldmind reset --device edge-a --cloud
-.\.venv\Scripts\python.exe -m fieldmind reset --device edge-b
-```
+After the first start, the devices start and run with no internet.
 
 ### Two laptops
 
@@ -134,16 +171,14 @@ Pull the network cable or switch off Wi-Fi on either laptop to take it offline f
 
 Or put the same values in a `.env` file (see `.env.example`). Sync and snapshot restore both send the API key.
 
-### A Linux device with a real network cut
-
-A third device runs on Linux in a container. Its only route to the cloud is one Docker network, which can be disconnected.
+### A real network cut, checked automatically
 
 ```powershell
-docker compose --profile linux-device up -d --build      # dashboard at http://127.0.0.1:8003, PIN 2468
-python scripts\linux_device_check.py                      # cuts the uplink, checks the device copes, reconnects
+docker compose --profile linux-device up -d --build      # edge-c at http://127.0.0.1:8003, PIN 2468
+python scripts\linux_device_check.py
 ```
 
-The same image builds for a Raspberry Pi or an industrial gateway; qdrant-edge-py ships x86_64 and aarch64 wheels.
+The script disconnects the device from the cloud's network, checks that it noticed by itself and kept working, reconnects it, and checks that its queue drained. The same image builds for a Raspberry Pi or an industrial gateway; qdrant-edge-py ships x86_64 and aarch64 wheels.
 
 ### Phones and tablets
 
@@ -151,7 +186,7 @@ The same image builds for a Raspberry Pi or an industrial gateway; qdrant-edge-p
 
 ## Demo script (5 minutes)
 
-Open both dashboards side by side and unlock them.
+Open both dashboards side by side and unlock them. The **Demo guide** button lists these steps and ticks them off as you go.
 
 1. **Cloud knowledge reaches the device.** On edge-a, click *Publish headquarters manuals to the cloud*. Eight manuals appear under *Received from cloud*.
 2. **Go offline.** Turn the *Network* switch off on edge-a. The header changes to *Working offline*.
@@ -165,7 +200,7 @@ Open both dashboards side by side and unlock them.
 10. **Evolving memory.** On edge-b, record `Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal`. Ask edge-a `what is the condition of pump P-102`. It answers with the new state.
 11. **Snapshot restore.** On the *Sync* tab, click *Rebuild cloud replica*. The activity log reports a restore from a Qdrant Server snapshot. Private notes are untouched.
 
-`python scripts\scenario.py 2468` runs the same story against the two running devices and checks all 30 steps.
+`python scripts/scenario.py 2468` runs the same story against the two running devices and checks all 30 steps. [docs/demo-video.md](docs/demo-video.md) is a shot-by-shot script for recording it.
 
 ## Tests
 
@@ -174,7 +209,7 @@ Open both dashboards side by side and unlock them.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-51 tests. Most run two devices against an in-memory cloud and cover offline work, restart safety, privacy, name masking, priority, merging, conflicts, deletion, withdrawal, recovery and the PIN lock. Three need a real Qdrant Server on `localhost:6333` (snapshot restore, real outage detection) and are skipped when it is not running.
+57 tests, run on every push by GitHub Actions against a real Qdrant Server. Most run two devices against a shared cloud and cover offline work, restart safety, privacy, name masking, priority, merging, conflicts, deletion, withdrawal, recovery, the PIN lock and the source check on generated answers. Three need a real Qdrant Server on `localhost:6333` (snapshot restore, real outage detection) and are skipped when none is running.
 
 ## Measured on the development laptop
 
@@ -195,6 +230,7 @@ Disk: each device reserves about 430 MB, because every Qdrant Edge shard preallo
 
 - Notes are not encrypted on the device's disk. The PIN protects the dashboard and API, not the files.
 - The PIN session is a cookie over plain HTTP, which is fine on the device itself and weak across a network. Put TLS in front before using `-Lan` outside a demo.
+- The answer model is small. The source check catches numbers that do not come from the cited note, not every possible misreading, so answers always list the notes they were based on.
 - The name model is English and cased. It handles common Indian and Western names in our tests but will miss some, and it does not detect addresses.
 - Pull sync lists every id and revision in the device's site on each cycle. That is fine for tens of thousands of memories, not millions.
 - Snapshot restore downloads the whole shard before trimming to the device's site, so other sites' data touches the disk briefly.
@@ -208,14 +244,19 @@ fieldmind/
   ner.py        name recognition for masking
   policy.py     what may leave the device
   service.py    capture, edit, search, answer
-  llm.py        optional on-device language model
+  llm.py        optional on-device language model, with a source check on its answers
   journal.py    SQLite outbox, conflicts, activity
   cloud.py      Qdrant Server client: compare-and-swap writes, snapshots
   sync.py       push, pull, merge, conflict resolution
   auth.py       device PIN and sessions
+  doctor.py     preflight check
   api.py        HTTP API
   web/          dashboard (no external assets, loads offline)
 tests/          two-device behaviour tests, API tests, live-server tests
-scripts/        start, stop, language model, scripted checks
-docs/           pitch outline, demo video script, screenshots
+scripts/        start, stop, reset, language model, scripted checks
+docs/           deck, requirement mapping, pitch notes, video script, screenshots
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

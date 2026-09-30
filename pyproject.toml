@@ -1,0 +1,17 @@
+[project]
+name = "fieldmind"
+version = "0.1.0"
+description = "Offline-first memory for field technicians, built on Qdrant Edge"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

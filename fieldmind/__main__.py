@@ -3,6 +3,7 @@
     python -m fieldmind serve --device edge-a --port 8001
     python -m fieldmind seed-cloud
     python -m fieldmind reset --device edge-a
+    python -m fieldmind doctor
 """
 
 from __future__ import annotations
@@ -34,12 +35,19 @@ def main(argv: list[str] | None = None) -> int:
     reset.add_argument("--device", required=True)
     reset.add_argument("--cloud", action="store_true", help="also empty the cloud collection")
 
+    sub.add_parser("doctor", help="check that this machine is ready to run and to demo offline")
+
     args = parser.parse_args(argv)
     settings = Settings()
     for name in ("device", "port", "host", "site", "author", "cloud_url", "pin"):
         value = getattr(args, name, None)
         if value is not None:
             setattr(settings, "device_id" if name == "device" else name, value)
+
+    if args.command == "doctor":
+        from .doctor import run
+
+        return run(settings)
 
     if args.command == "seed-cloud":
         from .cloud import Cloud

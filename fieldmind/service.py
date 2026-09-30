@@ -397,7 +397,8 @@ class MemoryService:
 
     def ask(self, question: str, limit: int = 6) -> dict:
         """Answer from device memory. A local language model phrases the answer when
-        one is running; otherwise it is composed from the memories themselves."""
+        one is running and its answer matches the notes it cites; otherwise the
+        answer is composed from the memories themselves."""
         started = time.perf_counter()
         found = self.search(question, limit=limit)
         relevant = [r for r in found["results"] if r["score"] >= ANSWER_AT][:3]
@@ -406,17 +407,22 @@ class MemoryService:
             earlier = [h for h in self.history(result["id"])[1:3]]
             points.append({"memory": result, "earlier": earlier})
 
-        engine, text = "device memory", None
+        engine, text, note = "device memory", None, None
         if points:
-            text = self.llm.answer(question, points)
+            text, problem = self.llm.answer(question, points)
             if text:
                 engine = f"on-device model {self.llm.model}"
+                note = "Numbers checked against the cited notes."
+            elif problem == "ungrounded":
+                note = "The model's wording did not match its sources, so the notes are quoted instead."
+                self.journal.log("answer", "Discarded a generated answer that did not match its sources.", level="warn")
         if text is None:
             text = self._compose(points)
         return {
             "question": question,
             "answer": text,
             "engine": engine,
+            "note": note,
             "points": points,
             "timing_ms": {**found["timing_ms"], "total": round((time.perf_counter() - started) * 1000, 2)},
             "network_calls": 0,

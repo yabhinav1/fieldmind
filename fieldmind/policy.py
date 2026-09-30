@@ -145,7 +145,7 @@ class PolicyEngine:
     def classify(self, text: str) -> tuple[str, float, dict[str, float]]:
         vector = np.asarray(self._embedder.dense([text])[0])
         scores = {}
-        for name, protos in zip(self._names, self._prototypes):
+        for name, protos in zip(self._names, self._prototypes, strict=True):
             sims = protos @ vector
             # Best single example, steadied by the category average.
             scores[name] = float(0.7 * sims.max() + 0.3 * sims.mean())

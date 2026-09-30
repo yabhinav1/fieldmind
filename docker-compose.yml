@@ -1,4 +1,34 @@
-# The "cloud" side: a Qdrant Server that every edge device syncs with.
+# FieldMind with Docker.
+#
+#   docker compose up -d qdrant
+#       Just the cloud (Qdrant Server). scripts/start.ps1 does this for you.
+#
+#   docker compose --profile demo up --build
+#       The whole demo on any OS: the cloud plus two edge devices.
+#       Open http://localhost:8001 and http://localhost:8002, PIN 2468.
+#
+#   docker compose --profile linux-device up -d --build
+#       One extra device (edge-c, http://localhost:8003) for the real network-cut check.
+#
+# A device's only route to the cloud is the "uplink" network, so its link can be cut for real:
+#   docker network disconnect fieldmind_uplink fieldmind-edge-a
+#   docker network connect    fieldmind_uplink fieldmind-edge-a
+# The dashboard stays reachable through the "console" network.
+
+x-device: &device
+  build: .
+  image: fieldmind-device
+  volumes:
+    - ./models:/models
+  networks: [console, uplink]
+
+x-device-env: &device-env
+  FIELDMIND_CLOUD_URL: http://qdrant:6333
+  FIELDMIND_COLLECTION: ${FIELDMIND_COLLECTION:-fleet_memory}
+  FIELDMIND_PIN: ${FIELDMIND_PIN:-2468}
+  # Containers have no language model; answers are composed from the notes.
+  FIELDMIND_OLLAMA_MODEL: ""
+
 services:
   qdrant:
     image: qdrant/qdrant:latest
@@ -11,28 +41,61 @@ services:
     networks: [uplink]
     restart: unless-stopped
 
-  # Optional third device running on Linux in its own container:
-  #   docker compose --profile linux-device up -d --build
-  # Its only route to the cloud is the "uplink" network, so its link can be cut for real:
-  #   docker network disconnect fieldmind_uplink fieldmind-edge-c
-  #   docker network connect    fieldmind_uplink fieldmind-edge-c
-  # The dashboard stays reachable at http://127.0.0.1:8003 through the "console" network.
+  edge-a:
+    <<: *device
+    profiles: ["demo"]
+    container_name: fieldmind-edge-a
+    environment:
+      <<: *device-env
+      FIELDMIND_DEVICE: edge-a
+      FIELDMIND_AUTHOR: technician-a
+    ports:
+      - "${EDGE_A_PORT:-8001}:8000"
+    volumes:
+      - ./models:/models
+      - edge_a_data:/data
+    depends_on: [qdrant]
+    # Ready once the models are loaded. edge-b waits for this so the two devices
+    # never download the same model files at the same time.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/auth/state', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+      start_period: 10s
+
+  edge-b:
+    <<: *device
+    profiles: ["demo"]
+    container_name: fieldmind-edge-b
+    environment:
+      <<: *device-env
+      FIELDMIND_DEVICE: edge-b
+      FIELDMIND_AUTHOR: technician-b
+    ports:
+      - "${EDGE_B_PORT:-8002}:8000"
+    volumes:
+      - ./models:/models
+      - edge_b_data:/data
+    depends_on:
+      qdrant:
+        condition: service_started
+      edge-a:
+        condition: service_healthy
+
   edge-c:
+    <<: *device
     profiles: ["linux-device"]
-    build: .
     container_name: fieldmind-edge-c
     environment:
+      <<: *device-env
       FIELDMIND_DEVICE: edge-c
       FIELDMIND_AUTHOR: technician-c
-      FIELDMIND_CLOUD_URL: http://qdrant:6333
-      FIELDMIND_PIN: ${FIELDMIND_PIN:-2468}
-      FIELDMIND_OLLAMA_MODEL: ""
     ports:
       - "8003:8000"
     volumes:
       - ./models:/models
       - edge_c_data:/data
-    networks: [console, uplink]
     depends_on: [qdrant]
 
 networks:
@@ -43,4 +106,6 @@ networks:
 
 volumes:
   qdrant_storage:
+  edge_a_data:
+  edge_b_data:
   edge_c_data:

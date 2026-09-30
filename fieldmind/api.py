@@ -133,7 +133,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         try:
             auth().set_pin(body.pin)
         except ValueError as error:
-            raise HTTPException(400, str(error))
+            raise HTTPException(400, str(error)) from None
         dev().journal.log("security", "A device PIN was set.")
         return open_session(response)
 
@@ -142,9 +142,9 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         try:
             auth().login(body.pin)
         except Locked as error:
-            raise HTTPException(429, str(error))
+            raise HTTPException(429, str(error)) from None
         except PermissionError as error:
-            raise HTTPException(401, str(error))
+            raise HTTPException(401, str(error)) from None
         return open_session(response)
 
     @app.post("/api/auth/logout")
@@ -200,7 +200,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             return dev().service.capture(body.text, body.kind, body.asset, body.tags, body.scope,
                                          allow_duplicate=body.allow_duplicate)
         except ValueError as error:
-            raise HTTPException(400, str(error))
+            raise HTTPException(400, str(error)) from None
 
     @app.get("/api/memories")
     def memories(scope: str | None = None, sync_state: str | None = None, kind: str | None = None,
@@ -215,21 +215,21 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             return {"memory": dev().service.get(memory_id), "history": dev().service.history(memory_id),
                     "queued": dev().journal.open_op(memory_id)}
         except NotFound:
-            raise HTTPException(404, "No such memory on this device.")
+            raise HTTPException(404, "No such memory on this device.") from None
 
     @app.patch("/api/memories/{memory_id}")
     def edit(memory_id: str, body: EditBody):
         try:
             return dev().service.edit(memory_id, body.text, body.kind, body.asset, body.tags, body.scope)
         except NotFound:
-            raise HTTPException(404, "No such memory on this device.")
+            raise HTTPException(404, "No such memory on this device.") from None
 
     @app.delete("/api/memories/{memory_id}")
     def delete(memory_id: str):
         try:
             dev().service.delete(memory_id)
         except NotFound:
-            raise HTTPException(404, "No such memory on this device.")
+            raise HTTPException(404, "No such memory on this device.") from None
         return {"deleted": memory_id}
 
     @app.post("/api/search")
@@ -265,9 +265,9 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         try:
             return dev().sync.resolve(conflict_id, body.choice, body.text)
         except KeyError:
-            raise HTTPException(404, "No open conflict with that id.")
+            raise HTTPException(404, "No open conflict with that id.") from None
         except ValueError as error:
-            raise HTTPException(400, str(error))
+            raise HTTPException(400, str(error)) from None
 
     @app.post("/api/replica/rebuild")
     def rebuild():

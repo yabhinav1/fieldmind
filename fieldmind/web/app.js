@@ -12,6 +12,7 @@ const state = {
   query: "",
   previewSeq: 0,
   searchSeq: 0,
+  guideOpen: false,
 };
 
 const SCOPE = {
@@ -33,6 +34,18 @@ const RELATION = {
 const PRIORITY = ["Low", "Normal", "Urgent"];
 
 // ---------------------------------------------------------------- helpers
+
+function seen(flag, value) {
+  const key = `fieldmind-seen-${location.port}`;
+  let flags = {};
+  try { flags = JSON.parse(localStorage.getItem(key) || "{}"); } catch (error) { /* storage unavailable */ }
+  if (value === undefined) return Boolean(flags[flag]);
+  if (!flags[flag]) {
+    flags[flag] = true;
+    try { localStorage.setItem(key, JSON.stringify(flags)); } catch (error) { /* storage unavailable */ }
+  }
+  return true;
+}
 
 async function api(path, options = {}) {
   const init = { method: options.method || "GET", headers: {} };
@@ -229,6 +242,8 @@ function renderStatus(s) {
       <dt>Storage reserved</dt><dd>${bytes(disk)}</dd>
     </dl>`;
   renderFilters();
+  if (!link.online) seen("offline", true);
+  if (state.guideOpen) renderGuide();
 }
 
 function renderEvents(events) {
@@ -242,6 +257,8 @@ function renderEvents(events) {
     </div>`).reverse().join("");
   box.insertAdjacentHTML("afterbegin", html);
   while (box.children.length > 150) box.lastElementChild.remove();
+  if (events.some((e) => e.message.includes("cloud snapshot"))) seen("snapshot", true);
+  if (events.some((e) => e.type === "conflict")) seen("conflict", true);
   state.lastEvent = events[events.length - 1].id;
   state.firstEvents = false;
 }
@@ -268,7 +285,7 @@ async function poll() {
 function refresh() {
   if (state.tab === "memory") loadMemory();
   if (state.tab === "sync") loadSync();
-  if (state.tab === "cloud") loadCloud();
+  if (state.tab === "cloud") { loadCloud(); seen("cloud", true); }
   if (state.tab === "work" && state.query) runSearch(false);
 }
 
@@ -350,6 +367,7 @@ async function runSearch(withAnswer = true) {
   const query = state.query;
   if (!query) return;
   const seq = ++state.searchSeq;
+  seen("search", true);
   const body = { query, mode: state.mode, limit: 8, include_superseded: $("include-old").checked };
   if (withAnswer) {
     $("answer").innerHTML = `<div class="answer pending"><div class="answer-head">Working out an answer on this device…</div></div>`;
@@ -388,7 +406,8 @@ function renderAnswer(answer) {
   $("answer").innerHTML = `<div class="answer">
     <div class="answer-head">Answer from ${esc(answer.engine)} · ${took} · ${answer.network_calls} network calls</div>
     ${lines.map((line) => `<p>${esc(line)}</p>`).join("")}
-    <div class="sources"><div class="answer-head">Based on</div>${sources}</div></div>`;
+    <div class="sources"><div class="answer-head">Based on</div>${sources}</div>
+    ${answer.note ? `<div class="answer-note">${esc(answer.note)}</div>` : ""}</div>`;
 }
 
 // ---------------------------------------------------------------- memory
@@ -478,7 +497,60 @@ async function openMemory(id) {
   };
 }
 
-function closeDrawer() { $("drawer").hidden = true; }
+function closeDrawer() { $("drawer").hidden = true; state.guideOpen = false; }
+
+// ---------------------------------------------------------------- demo guide
+
+const GUIDE = [
+  { title: "Bring headquarters knowledge onto the device",
+    text: "Headquarters publishes manuals to the cloud. The device pulls them into its replica shard.",
+    done: (s) => s.memory.replica > 0, action: ["Publish manuals", "seed-cloud"] },
+  { title: "Lose the network",
+    text: "Turn the Network switch off at the top. The device keeps everything it already has.",
+    done: () => seen("offline") },
+  { title: "Record notes while offline",
+    text: "Write your own note, or load samples. Watch the activity log: each note is kept private, shared, or shared with names masked.",
+    done: (s) => s.memory.local > 0, action: ["Load sample notes", "seed"] },
+  { title: "Search and ask with no network",
+    text: "Try: is a vibration of 7.2 mm/s acceptable. Results come back in about a millisecond with 0 network calls.",
+    done: () => seen("search") },
+  { title: "Reconnect and sync",
+    text: "Turn Network back on. The queue on the Sync tab drains, urgent notes first.",
+    done: (s) => s.link.online && s.outbox.done > 0 && s.outbox.pending === 0 },
+  { title: "Check what actually left the device",
+    text: "Open the Cloud tab. Private notes are absent; names and phone numbers are masked.",
+    done: () => seen("cloud") },
+  { title: "Make two devices disagree",
+    text: "On this device and another, turn Network off, edit the same shared note differently, then reconnect one after the other. The second shows both versions on its Sync tab.",
+    done: (s) => s.open_conflicts > 0 || s.sync.totals.conflicts > 0 || seen("conflict") },
+  { title: "Restore the replica from a cloud snapshot",
+    text: "On the Sync tab, choose Rebuild cloud replica. The device downloads one Qdrant Server snapshot. Private notes are untouched.",
+    done: () => seen("snapshot") },
+];
+
+function renderGuide() {
+  const s = state.status;
+  if (!s) return;
+  const done = GUIDE.map((step) => Boolean(step.done(s)));
+  const next = done.indexOf(false);
+  const steps = GUIDE.map((step, i) => `
+    <div class="guide-step ${done[i] ? "done" : i === next ? "next" : ""}">
+      <span class="guide-mark">${done[i] ? "✓" : i + 1}</span>
+      <div><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p>
+        ${step.action && !done[i] ? `<button class="btn small" data-guide="${step.action[1]}">${esc(step.action[0])}</button>` : ""}
+      </div>
+    </div>`).join("");
+  $("drawer-body").innerHTML = `
+    <div class="drawer-head"><h2>Demo guide</h2><button class="btn ghost small" data-close>Close</button></div>
+    <p class="guide-progress">${done.filter(Boolean).length} of ${GUIDE.length} done on ${esc(s.device.id)}. Steps tick themselves off as you go.</p>
+    ${steps}`;
+}
+
+function openGuide() {
+  state.guideOpen = true;
+  renderGuide();
+  $("drawer").hidden = false;
+}
 
 // ---------------------------------------------------------------- sync
 
@@ -626,7 +698,9 @@ $("memory-text").addEventListener("input", () => { clearTimeout(filterTimer); fi
 
 document.addEventListener("click", (event) => {
   const open = event.target.closest("[data-open]");
-  if (open) return openMemory(open.dataset.open);
+  if (open) { state.guideOpen = false; return openMemory(open.dataset.open); }
+  const guided = event.target.closest("[data-guide]");
+  if (guided) return $(guided.dataset.guide).click();
   if (event.target.closest("[data-close]") || event.target === $("drawer")) return closeDrawer();
 
   const combine = event.target.closest("[data-combine]");
@@ -674,6 +748,7 @@ $("seed-cloud").addEventListener("click", async (event) => {
   if (result) { toast(`Published ${result.published} manuals to the cloud.`); poll(); }
 });
 
+$("guide").addEventListener("click", openGuide);
 $("lock-form").addEventListener("submit", submitLock);
 $("lock-now").addEventListener("click", async () => {
   await api("/api/auth/logout", { method: "POST" }).catch(() => null);

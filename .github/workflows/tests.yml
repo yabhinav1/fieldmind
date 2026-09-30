@@ -1,0 +1,42 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # A real Qdrant Server, so the snapshot-restore and outage tests run too.
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check fieldmind tests scripts
+
+      - name: Cache the embedding and name models
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: models-bge-small-bert-ner-v1
+
+      - name: Test
+        run: pytest tests -q

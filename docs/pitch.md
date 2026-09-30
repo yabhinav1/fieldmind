@@ -41,6 +41,9 @@ Three signals, all local: pattern detectors for credentials and contact details,
 **Could the embedding leak a masked name?**
 No. For a masked note the vectors we upload are computed from the masked text.
 
+**Can the language model make things up?**
+A 3B model can, and in testing it did: it took an alarm limit from a manual and reported it as a reading on a motor. So every generated answer goes through a source check before it is shown. Each number in a sentence must appear in the note that sentence cites. If not, the answer is thrown away and the device quotes the notes instead. The sources are always listed under the answer.
+
 **Is the language model required?**
 No. Without it, answers are composed from the retrieved notes. With it, a 3B model on the device phrases the answer and cites its sources. Either way there is no cloud call.
 
