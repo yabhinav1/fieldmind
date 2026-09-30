@@ -5,10 +5,8 @@ Target length: 3 minutes. Record at 1920×1080 with both dashboards side by side
 ## Before recording
 
 ```powershell
-.\scripts\stop.ps1
-.\.venv\Scripts\python.exe -m fieldmind reset --device edge-a --cloud
-.\.venv\Scripts\python.exe -m fieldmind reset --device edge-b
-.\scripts\start.ps1 -Pin 2468
+.\scriptseset.ps1 -Pin 2468                      # clean slate, both devices restarted
+.\.venv\Scripts\python.exe -m fieldmind doctor     # every line should say ok
 ```
 
 Unlock both dashboards. Ask one throwaway question on edge-a so the language model is loaded, then clear the search box. Close other apps: the model needs the GPU.
