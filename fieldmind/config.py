@@ -1,0 +1,59 @@
+"""Runtime settings for one edge device."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+DENSE = "dense"
+SPARSE = "bm25"
+DENSE_MODEL = "BAAI/bge-small-en-v1.5"
+DENSE_DIM = 384
+
+
+def _env(name: str, default: str) -> str:
+    return os.environ.get(f"FIELDMIND_{name}", default)
+
+
+@dataclass
+class Settings:
+    device_id: str = field(default_factory=lambda: _env("DEVICE", "edge-a"))
+    site: str = field(default_factory=lambda: _env("SITE", "plant-1"))
+    author: str = field(default_factory=lambda: _env("AUTHOR", "technician"))
+    host: str = field(default_factory=lambda: _env("HOST", "127.0.0.1"))
+    port: int = field(default_factory=lambda: int(_env("PORT", "8001")))
+
+    data_root: Path = field(default_factory=lambda: Path(_env("DATA", str(ROOT / "data"))))
+    models_dir: Path = field(default_factory=lambda: Path(_env("MODELS", str(ROOT / "models"))))
+
+    cloud_url: str = field(default_factory=lambda: _env("CLOUD_URL", "http://localhost:6333"))
+    cloud_api_key: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_CLOUD_API_KEY"))
+    collection: str = field(default_factory=lambda: _env("COLLECTION", "fleet_memory"))
+
+    # Seconds between background sync attempts, and how many queued changes one
+    # attempt may send. The cap models a constrained uplink: when the link comes
+    # back, high-priority memories go first.
+    sync_interval: float = field(default_factory=lambda: float(_env("SYNC_INTERVAL", "4")))
+    sync_batch: int = field(default_factory=lambda: int(_env("SYNC_BATCH", "25")))
+
+    ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://localhost:11434"))
+    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", ""))
+
+    @property
+    def data_dir(self) -> Path:
+        return self.data_root / self.device_id
+
+    @property
+    def local_shard_dir(self) -> Path:
+        return self.data_dir / "shard-local"
+
+    @property
+    def replica_shard_dir(self) -> Path:
+        return self.data_dir / "shard-replica"
+
+    @property
+    def journal_path(self) -> Path:
+        return self.data_dir / "journal.sqlite"

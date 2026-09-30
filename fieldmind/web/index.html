@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FieldMind</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 4 9.5v13L16 29l12-6.5v-13z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="16" cy="16" r="4" fill="currentColor"/></svg>
+    <div>
+      <div class="name">FieldMind</div>
+      <div class="device" id="device-line">Starting…</div>
+    </div>
+  </div>
+
+  <div class="link" id="link">
+    <div class="link-state">
+      <span class="dot" id="link-dot"></span>
+      <div>
+        <div class="link-title" id="link-title">Checking link</div>
+        <div class="link-sub" id="link-sub">&nbsp;</div>
+      </div>
+    </div>
+    <label class="switch" title="Simulate losing the network on this device">
+      <input type="checkbox" id="network-toggle" checked>
+      <span class="track"><span class="thumb"></span></span>
+      <span class="switch-label">Network</span>
+    </label>
+    <button class="btn" id="sync-now">Sync now</button>
+    <button class="btn ghost icon" id="theme" title="Switch light and dark" aria-label="Switch light and dark">◐</button>
+  </div>
+</header>
+
+<section class="stats" id="stats"></section>
+
+<main class="layout">
+  <div class="main">
+    <nav class="tabs" id="tabs" role="tablist">
+      <button class="tab active" data-tab="work" role="tab">Work</button>
+      <button class="tab" data-tab="memory" role="tab">Memory</button>
+      <button class="tab" data-tab="sync" role="tab">Sync <span class="count" id="tab-sync-count"></span></button>
+      <button class="tab" data-tab="cloud" role="tab">Cloud</button>
+    </nav>
+
+    <section class="panel active" id="panel-work">
+      <div class="work">
+        <div class="card">
+          <h2>Record a note</h2>
+          <p class="hint">Write what you saw or did. The device decides what stays here and what is shared.</p>
+          <textarea id="note" rows="4" placeholder="Pump P-102 bearing vibration high at 7.2 mm/s…"></textarea>
+          <div class="row">
+            <select id="scope-override" aria-label="Sharing">
+              <option value="">Let the device decide</option>
+              <option value="private">Keep on this device</option>
+              <option value="shared">Share with the fleet</option>
+            </select>
+            <button class="btn primary" id="save-note" disabled>Save note</button>
+          </div>
+          <div id="preview" class="preview empty">The sharing decision appears here as you type.</div>
+          <div id="capture-result"></div>
+          <div class="samples">
+            <span class="hint">No notes yet?</span>
+            <button class="link-btn" id="seed">Load sample notes</button>
+            <button class="link-btn" id="seed-cloud">Publish headquarters manuals to the cloud</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Search device memory</h2>
+          <p class="hint">Runs entirely on this device, online or not.</p>
+          <form id="search-form" class="row">
+            <input id="query" type="search" placeholder="Which machine is running hot?" autocomplete="off">
+            <button class="btn primary" type="submit">Search</button>
+          </form>
+          <div class="row wrap">
+            <div class="segmented" id="mode">
+              <button type="button" data-mode="hybrid" class="active">Combined</button>
+              <button type="button" data-mode="semantic">Meaning</button>
+              <button type="button" data-mode="keyword">Keywords</button>
+            </div>
+            <label class="check"><input type="checkbox" id="include-old"> Include replaced notes</label>
+          </div>
+          <div id="search-meta" class="meta-line"></div>
+          <div id="answer"></div>
+          <div id="results" class="list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-memory">
+      <div class="card">
+        <div class="row wrap between">
+          <div class="chips" id="memory-filters"></div>
+          <input id="memory-text" type="search" placeholder="Filter by text" autocomplete="off">
+        </div>
+        <div id="memory-list" class="list"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-sync">
+      <div class="grid-2">
+        <div class="card">
+          <h2>Waiting to send</h2>
+          <p class="hint">Changes made on this device, sent in this order when the link is up.</p>
+          <div id="outbox" class="list"></div>
+        </div>
+        <div class="card">
+          <h2>Link and totals</h2>
+          <div id="sync-summary"></div>
+          <div class="row wrap">
+            <label class="check"><input type="checkbox" id="auto-sync" checked> Sync automatically</label>
+            <button class="btn" id="rebuild">Rebuild cloud replica</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Needs a decision</h2>
+        <p class="hint">Two devices changed the same note in different ways. Nothing was overwritten.</p>
+        <div id="conflicts" class="list"></div>
+      </div>
+      <div class="card">
+        <h2>Recent sync runs</h2>
+        <div id="runs"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-cloud">
+      <div class="card">
+        <div class="row between wrap">
+          <div>
+            <h2>What the cloud holds</h2>
+            <p class="hint" id="cloud-hint">Read from the cloud when the link is up.</p>
+          </div>
+          <div id="cloud-compare" class="compare"></div>
+        </div>
+        <div id="cloud-list" class="list"></div>
+      </div>
+    </section>
+  </div>
+
+  <aside class="rail">
+    <div class="card activity">
+      <h2>Activity</h2>
+      <div id="events" class="events"></div>
+    </div>
+    <div class="card engine" id="engine"></div>
+  </aside>
+</main>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="drawer-body" id="drawer-body"></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
