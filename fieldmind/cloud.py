@@ -58,6 +58,9 @@ class Cloud:
                 self.collection,
                 vectors_config={DENSE: m.VectorParams(size=DENSE_DIM, distance=m.Distance.COSINE)},
                 sparse_vectors_config={SPARSE: m.SparseVectorParams(modifier=m.Modifier.IDF)},
+                # Devices restore from shard snapshots and pay disk for every segment
+                # they unpack, so keep the shard in one segment.
+                optimizers_config=m.OptimizersConfigDiff(default_segment_number=1),
             )
         if not self._injected:
             for name in ("site", "status", "device_id", "asset"):

@@ -20,6 +20,7 @@ from qdrant_edge import (
     CountRequest,
     Distance,
     EdgeConfig,
+    EdgeOptimizersConfig,
     EdgeShard,
     EdgeSparseVectorParams,
     EdgeVectorParams,
@@ -74,6 +75,9 @@ class Shard:
         config = EdgeConfig(
             vectors={DENSE: EdgeVectorParams(size=DENSE_DIM, distance=Distance.Cosine)},
             sparse_vectors={SPARSE: EdgeSparseVectorParams(modifier=Modifier.Idf)},
+            # Every segment preallocates its own storage files (about 215 MB), so an
+            # edge device keeps exactly one.
+            optimizers=EdgeOptimizersConfig(default_segment_number=1),
         )
         # load() creates the shard when the directory is empty.
         self._shard = EdgeShard.load(str(self.path), config)
@@ -113,6 +117,9 @@ class Shard:
             try:
                 EdgeShard.unpack_snapshot(str(snapshot), str(self.path))
                 self._open()
+                # A server shard usually arrives as several segments. Merge them.
+                self._shard.optimize()
+                self._shard.flush()
             except Exception:
                 # Never leave the device without a usable replica shard.
                 shutil.rmtree(self.path, ignore_errors=True)
