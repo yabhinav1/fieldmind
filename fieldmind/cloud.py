@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Iterable
 
 import httpx
@@ -111,6 +112,23 @@ class Cloud:
     def count(self, live_only: bool = True) -> int:
         flt = m.Filter(must_not=[m.FieldCondition(key="status", match=m.MatchValue(value="deleted"))]) if live_only else None
         return self.client.count(self.collection, count_filter=flt, exact=True).count
+
+    @property
+    def supports_snapshots(self) -> bool:
+        return not self._injected
+
+    def download_snapshot(self, target: Path) -> int:
+        """Stream a snapshot of the collection's shard to ``target``. Returns its size in bytes."""
+        headers = {"api-key": self.api_key} if self.api_key else {}
+        url = f"{self.url}/collections/{self.collection}/shards/0/snapshot"
+        size = 0
+        with httpx.stream("GET", url, headers=headers, timeout=120) as response:
+            response.raise_for_status()
+            with open(target, "wb") as out:
+                for chunk in response.iter_bytes(1 << 16):
+                    out.write(chunk)
+                    size += len(chunk)
+        return size
 
     # -- writes -----------------------------------------------------------
 

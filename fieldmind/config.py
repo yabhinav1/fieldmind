@@ -38,6 +38,9 @@ class Settings:
     # back, high-priority memories go first.
     sync_interval: float = field(default_factory=lambda: float(_env("SYNC_INTERVAL", "4")))
     sync_batch: int = field(default_factory=lambda: int(_env("SYNC_BATCH", "25")))
+    # When a device is this many memories behind, it restores the replica from one
+    # cloud snapshot instead of fetching memories one by one.
+    snapshot_min_points: int = field(default_factory=lambda: int(_env("SNAPSHOT_MIN_POINTS", "200")))
 
     ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://localhost:11434"))
     ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", ""))

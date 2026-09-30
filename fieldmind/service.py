@@ -482,7 +482,7 @@ class MemoryService:
             "created_at": payload.get("created_at", 0),
             "updated_at": payload.get("updated_at", 0),
             "rev": payload.get("rev", 1),
-            "base_rev": payload.get("base_rev", 0),
+            "base_rev": payload.get("rev", 1) if shard == "replica" else payload.get("base_rev", 0),
             "status": payload.get("status", "active"),
             "supersedes": payload.get("supersedes"),
             "superseded_by": payload.get("superseded_by"),

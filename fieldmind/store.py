@@ -11,6 +11,7 @@ without touching anything the device has not shared.
 
 from __future__ import annotations
 
+import shutil
 import threading
 from pathlib import Path
 from typing import Any, Iterable
@@ -98,6 +99,25 @@ class Shard:
         if ids:
             with self._lock:
                 self._shard.update(UpdateOperation.delete_points(ids))
+
+    def delete_where(self, flt: Filter) -> None:
+        with self._lock:
+            self._shard.update(UpdateOperation.delete_points_by_filter(flt))
+
+    def restore(self, snapshot: Path) -> None:
+        """Replace this shard's contents with a Qdrant Server shard snapshot."""
+        with self._lock:
+            self._shard.close()
+            shutil.rmtree(self.path, ignore_errors=True)
+            self.path.mkdir(parents=True, exist_ok=True)
+            try:
+                EdgeShard.unpack_snapshot(str(snapshot), str(self.path))
+                self._open()
+            except Exception:
+                # Never leave the device without a usable replica shard.
+                shutil.rmtree(self.path, ignore_errors=True)
+                self._open()
+                raise
 
     def clear(self) -> None:
         with self._lock:

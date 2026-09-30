@@ -5,7 +5,8 @@ compare-and-swap on the revision the device last saw. If the cloud has moved on,
 the change is merged field by field; only a true clash needs a person.
 
 Pull: compare a lightweight manifest (ids and revisions) with what the device
-holds and download only what changed.
+holds and download only what changed. A device that is far behind restores its
+replica shard from one cloud snapshot first, then carries on with the diff.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import json
 import threading
 import time
 
-from qdrant_edge import SparseVector
+from qdrant_edge import FieldCondition, Filter, MatchAny, MatchValue, SparseVector
 
 from .cloud import Cloud
 from .journal import Journal
@@ -340,6 +341,14 @@ class SyncEngine:
             elif replica.get(memory_id) != rev:
                 wanted[memory_id] = "replica"
 
+        behind = sum(1 for i, e in manifest.items()
+                     if i not in local and e.get("status") != "deleted" and replica.get(i) != e.get("rev", 0))
+        if behind >= self.settings.snapshot_min_points and self.cloud.supports_snapshots:
+            self._restore_replica(stats)
+            replica = {r["id"]: r["payload"].get("rev", 0) for r in service.replica.scroll()}
+            wanted = {i: target for i, target in wanted.items()
+                      if target == "local" or replica.get(i) != manifest[i].get("rev", 0)}
+
         gone = [i for i in replica if i not in manifest]
         service.replica.delete(gone)
         stats["removed"] += len(gone)
@@ -430,12 +439,46 @@ class SyncEngine:
 
     # -- replica ----------------------------------------------------------
 
+    def _restore_replica(self, stats: dict) -> None:
+        """Rebuild the replica shard from a Qdrant Server shard snapshot.
+
+        The snapshot holds the whole collection, so it is trimmed straight away to
+        what this device subscribes to: its own site plus fleet-wide knowledge,
+        minus tombstones and minus memories that already live in the local shard.
+        """
+        service = self.service
+        started = time.time()
+        scratch = self.settings.data_dir / "tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        snapshot = scratch / "replica.snapshot"
+        try:
+            size = self.cloud.download_snapshot(snapshot)
+            service.replica.restore(snapshot)
+        finally:
+            snapshot.unlink(missing_ok=True)
+        service.replica.delete_where(Filter(must=[FieldCondition(key="status", match=MatchValue("deleted"))]))
+        service.replica.delete_where(Filter(must_not=[
+            FieldCondition(key="site", match=MatchAny([self.settings.site, "global"]))]))
+        service.replica.delete([r["id"] for r in service.local.scroll()])
+        kept = service.replica.count()
+        stats["pulled"] += kept
+        stats["bytes_down"] += size
+        stats["snapshot_bytes"] = size
+        self.journal.log("sync", f"Restored {kept} memories from a {_bytes(size)} cloud snapshot "
+                                 f"in {time.time() - started:.1f}s.", level="good", bytes=size, memories=kept)
+
     def rebuild_replica(self) -> dict:
-        """Throw away the cloud replica and download it again. Device-authored memory is untouched."""
+        """Throw away the cloud replica and load it again. Device-authored memory is untouched."""
         before = self.service.replica.count()
+        if self.check_link() and self.cloud.supports_snapshots:
+            with self._run_lock:
+                stats = dict(pulled=0, bytes_down=0)
+                self.cloud.ensure()
+                self._restore_replica(stats)
+            return {"cleared": before, "method": "snapshot", "sync": self.run_once("rebuild"), **stats}
         self.service.replica.clear()
         self.journal.log("sync", f"Cleared the cloud replica ({before} memories). It refills on the next sync.")
-        return {"cleared": before, "sync": self.run_once("rebuild")}
+        return {"cleared": before, "method": "diff", "sync": self.run_once("rebuild")}
 
 
 def _summary(stats: dict) -> str:
@@ -453,6 +496,14 @@ def _summary(stats: dict) -> str:
     if not parts:
         return "Sync complete, already up to date."
     return "Sync complete: " + ", ".join(parts) + "."
+
+
+def _bytes(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 ** 2:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / 1024 ** 2:.1f} MB"
 
 
 def _duration(seconds: float) -> str:
