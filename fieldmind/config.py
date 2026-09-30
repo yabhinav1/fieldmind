@@ -8,6 +8,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+try:  # settings may live in a .env file next to the project; real environment variables win
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env")
+except ImportError:
+    pass
+
 DENSE = "dense"
 SPARSE = "bm25"
 DENSE_MODEL = "BAAI/bge-small-en-v1.5"

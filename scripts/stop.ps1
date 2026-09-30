@@ -1,5 +1,7 @@
-# Stops the edge devices started by start.ps1. Add -Cloud to stop the Qdrant Server too.
-param([switch]$Cloud)
+# Stops the edge devices started by start.ps1.
+#   .\scripts\stop.ps1          stop the devices
+#   .\scripts\stop.ps1 -All     also stop the language model server and the cloud containers
+param([switch]$All)
 
 $root = Split-Path -Parent $PSScriptRoot
 foreach ($port in 8001, 8002) {
@@ -9,4 +11,7 @@ foreach ($port in 8001, 8002) {
         Write-Host "Stopped the device on port $port."
     }
 }
-if ($Cloud) { docker compose -f (Join-Path $root "docker-compose.yml") down }
+if ($All) {
+    & (Join-Path $PSScriptRoot "llm.ps1") -Stop
+    docker compose -f (Join-Path $root "docker-compose.yml") --profile linux-device down
+}

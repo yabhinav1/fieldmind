@@ -8,7 +8,39 @@ services:
       - "6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
+    networks: [uplink]
     restart: unless-stopped
+
+  # Optional third device running on Linux in its own container:
+  #   docker compose --profile linux-device up -d --build
+  # Its only route to the cloud is the "uplink" network, so its link can be cut for real:
+  #   docker network disconnect fieldmind_uplink fieldmind-edge-c
+  #   docker network connect    fieldmind_uplink fieldmind-edge-c
+  # The dashboard stays reachable at http://127.0.0.1:8003 through the "console" network.
+  edge-c:
+    profiles: ["linux-device"]
+    build: .
+    container_name: fieldmind-edge-c
+    environment:
+      FIELDMIND_DEVICE: edge-c
+      FIELDMIND_AUTHOR: technician-c
+      FIELDMIND_CLOUD_URL: http://qdrant:6333
+      FIELDMIND_PIN: ${FIELDMIND_PIN:-2468}
+      FIELDMIND_OLLAMA_MODEL: ""
+    ports:
+      - "8003:8000"
+    volumes:
+      - ./models:/models
+      - edge_c_data:/data
+    networks: [console, uplink]
+    depends_on: [qdrant]
+
+networks:
+  uplink:
+    name: fieldmind_uplink
+  console:
+    name: fieldmind_console
 
 volumes:
   qdrant_storage:
+  edge_c_data:

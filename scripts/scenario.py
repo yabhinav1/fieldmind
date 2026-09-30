@@ -2,7 +2,9 @@
 
 Start the cloud and both devices first (see README), then:
 
-    python scripts/scenario.py
+    python scripts/scenario.py [PIN]
+
+The PIN defaults to 2468. A device that has no PIN yet is given this one.
 """
 
 import sys
@@ -11,11 +13,25 @@ import time
 import httpx
 
 A, B = "http://127.0.0.1:8001", "http://127.0.0.1:8002"
+PIN = sys.argv[1] if len(sys.argv) > 1 else "2468"
 failures = []
+sessions = {}
+
+
+def session(base):
+    """One logged-in HTTP session per device."""
+    if base not in sessions:
+        client = httpx.Client(base_url=base, timeout=120)
+        state = client.get("/api/auth/state").json()
+        response = client.post("/api/auth/login" if state["configured"] else "/api/auth/setup", json={"pin": PIN})
+        if response.status_code != 200:
+            sys.exit(f"Could not unlock {base}: {response.json().get('detail')}. Pass the PIN as an argument.")
+        sessions[base] = client
+    return sessions[base]
 
 
 def call(base, method, path, **body):
-    response = httpx.request(method, base + path, json=body or None, timeout=60)
+    response = session(base).request(method, path, json=body or None)
     response.raise_for_status()
     return response.json()
 
@@ -38,6 +54,10 @@ def sync(base):
 def cloud_texts():
     return [item["text"] for item in call(A, "GET", "/api/cloud")["items"]]
 
+
+print("0. Devices are locked")
+check("API refuses requests without the PIN", httpx.get(A + "/api/status").status_code == 401)
+session(A), session(B)
 
 print("1. Headquarters publishes manuals; device A downloads them")
 call(A, "POST", "/api/link/offline", value=False)
@@ -65,6 +85,10 @@ found = call(A, "POST", "/api/search", query="what vibration level is unacceptab
 check("cloud manual is searchable offline", found["results"][0]["source"] == "replica", found["results"][0]["text"][:60])
 check("sync refuses while offline", sync(A)["status"] == "offline")
 
+masked = call(A, "POST", "/api/memories", text="Suresh cleaned the strainer on cooling pump P-210, flow back to 42 m3/h")
+check("a bare name is masked for the cloud", "Suresh" not in (masked["memory"]["shared_text"] or "Suresh"),
+      masked["memory"]["shared_text"])
+
 print("3. The network returns")
 call(A, "POST", "/api/link/offline", value=False)
 result = sync(A)
@@ -75,6 +99,7 @@ check("cloud has the pump note", any("P-102" in t for t in texts))
 check("health note never left the device", "chest pain" not in joined)
 check("password never left the device", "Plant@2026" not in joined)
 check("phone number was masked", "9876543210" not in joined and any("[phone removed]" in t for t in texts))
+check("bare name never left the device", "Suresh" not in joined and any("P-210" in t for t in texts))
 check("nothing left waiting", call(A, "GET", "/api/status")["outbox"]["pending"] == 0)
 
 print("4. Device B receives what A shared")
@@ -112,6 +137,20 @@ sync(B)
 sync(A)
 answer = call(A, "POST", "/api/ask", question="what is the condition of pump P-102")
 check("A answers with the latest state", "1.8 mm/s" in answer["answer"], answer["answer"][:80])
+
+print("8. The replica is rebuilt from a cloud snapshot")
+before = call(A, "GET", "/api/status")["memory"]
+rebuilt = call(A, "POST", "/api/replica/rebuild")
+after = call(A, "GET", "/api/status")["memory"]
+check("rebuilt from a Qdrant Server snapshot", rebuilt["method"] == "snapshot", f"{rebuilt.get('bytes_down', 0)} bytes")
+check("replica holds the same memories as before", after["replica"] == before["replica"], after["replica"])
+check("device-written memories untouched", (after["local"], after["private"]) == (before["local"], before["private"]))
+found = call(A, "POST", "/api/search", query="what vibration level is unacceptable")
+check("restored replica is searchable", found["results"][0]["source"] == "replica", f"{found['timing_ms']['search']} ms")
+
+answer = call(A, "POST", "/api/ask", question="is a vibration of 7.2 mm/s acceptable")
+print(f"   answer engine: {answer['engine']}")
+print(f"   answer: {answer['answer'][:160]}")
 
 print()
 print("All steps passed." if not failures else f"{len(failures)} step(s) failed: {failures}")

@@ -1,7 +1,11 @@
 qdrant-edge-py==0.8.0
 qdrant-client==1.19.1
 fastembed==0.8.1
+onnxruntime==1.30.0
+tokenizers==0.23.2
+huggingface-hub==1.33.0
+numpy==2.5.3
 fastapi==0.141.1
 uvicorn[standard]==0.54.0
 httpx==0.28.1
-pytest>=8
+python-dotenv==1.2.3
