@@ -6,12 +6,13 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .auth import Auth, Locked
 from .config import DENSE_MODEL, Settings
 from .demo import DEFAULT_NOTES, DEVICE_NOTES, seed_cloud
 from .runtime import Device, build
@@ -62,6 +63,10 @@ class ToggleBody(BaseModel):
     value: bool
 
 
+class PinBody(BaseModel):
+    pin: str
+
+
 class ResolveBody(BaseModel):
     choice: str
     text: str | None = None
@@ -69,12 +74,14 @@ class ResolveBody(BaseModel):
 
 def create_app(settings: Settings | None = None, device: Device | None = None) -> FastAPI:
     settings = settings or (device.settings if device else Settings())
-    state: dict[str, Device] = {}
+    state: dict = {}
+    cookie = f"fieldmind_{settings.device_id}"  # cookies ignore ports, so name it per device
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         state["device"] = device or build(settings)
         dev = state["device"]
+        state["auth"] = Auth(dev.journal, settings.pin)
         dev.journal.log("system", f"Device {settings.device_id} started. Embedding model loaded from {dev.embedder.loaded_from} "
                                   f"in {dev.embedder.load_seconds}s.")
         dev.sync.start()
@@ -85,6 +92,65 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
 
     def dev() -> Device:
         return state["device"]
+
+    def auth() -> Auth:
+        return state["auth"]
+
+    # -- device lock ------------------------------------------------------
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/") and not path.startswith("/api/auth/"):
+            if not auth().valid(request.cookies.get(cookie)):
+                return JSONResponse({"detail": "This device is locked."}, status_code=401)
+        return await call_next(request)
+
+    def open_session(response: Response) -> dict:
+        response.set_cookie(cookie, auth().start_session(), httponly=True, samesite="strict", max_age=12 * 3600)
+        return {"authenticated": True}
+
+    def on_device(request: Request) -> bool:
+        return request.client is not None and request.client.host in ("127.0.0.1", "::1")
+
+    @app.get("/api/auth/state")
+    def auth_state(request: Request):
+        return {
+            "device": settings.device_id,
+            "configured": auth().configured,
+            "authenticated": auth().valid(request.cookies.get(cookie)),
+            "can_set_up": on_device(request),
+            "locked_for": auth().locked_for(),
+        }
+
+    @app.post("/api/auth/setup")
+    def auth_setup(body: PinBody, request: Request, response: Response):
+        if auth().configured:
+            raise HTTPException(409, "This device already has a PIN.")
+        if not on_device(request):
+            raise HTTPException(403, "The first PIN must be set on the device itself.")
+        try:
+            auth().set_pin(body.pin)
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+        dev().journal.log("security", "A device PIN was set.")
+        return open_session(response)
+
+    @app.post("/api/auth/login")
+    def auth_login(body: PinBody, response: Response):
+        try:
+            auth().login(body.pin)
+        except Locked as error:
+            raise HTTPException(429, str(error))
+        except PermissionError as error:
+            raise HTTPException(401, str(error))
+        return open_session(response)
+
+    @app.post("/api/auth/logout")
+    def auth_logout(request: Request, response: Response):
+        auth().logout(request.cookies.get(cookie))
+        response.delete_cookie(cookie)
+        return {"authenticated": False}
 
     # -- status -----------------------------------------------------------
 
@@ -102,7 +168,8 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             "shards": {"local": local, "replica": replica},
             "engine": {"vector_store": "Qdrant Edge (in-process)", "dense_model": DENSE_MODEL,
                        "sparse_model": "BM25 (Qdrant Edge)", "dimensions": d.embedder.dim,
-                       "answer_model": settings.ollama_model or None},
+                       "answer_model": settings.ollama_model or None,
+                       "name_model": "BERT NER (ONNX)" if d.names.available else None},
             "sync": {"last_sync_at": d.journal.get("last_sync_at"), "totals": d.journal.totals(), "interval": settings.sync_interval,
                      "batch": settings.sync_batch},
             "now": time.time(),

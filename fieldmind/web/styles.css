@@ -297,6 +297,13 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .answer { margin-top: 12px; padding: 14px; border-radius: 10px; background: var(--sunken); border-left: 4px solid var(--accent); }
 .answer-head { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
 .answer p + p { margin-top: 8px; }
+.answer.pending .answer-head { margin: 0; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+.sources { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+.source { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: baseline; border: 0; background: none; padding: 2px 0; text-align: left; cursor: pointer; font-size: 13px; color: var(--muted); }
+.source:hover .source-text { color: var(--text); text-decoration: underline; }
+.source-n { font-family: var(--mono); font-size: 11px; width: 18px; height: 18px; border-radius: 50%; background: var(--neutral-bg); display: inline-grid; place-items: center; }
+.source-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { border: 1px solid var(--line); background: var(--surface); padding: 4px 12px; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--muted); }
@@ -358,6 +365,16 @@ td.num, th.num { text-align: right; }
 .history-item { padding: 10px 0 10px 14px; border-left: 2px solid var(--line); margin-left: 4px; }
 .history-item.current { border-left-color: var(--accent); }
 .mono { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+
+.lock { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: grid; place-items: center; padding: 16px; }
+.lock[hidden] { display: none; }
+.lock-card { width: min(340px, 100%); display: grid; gap: 12px; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 28px 24px; box-shadow: var(--shadow); }
+.lock-card .mark { width: 40px; height: 40px; margin: 0 auto; }
+.lock-card h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+.lock-card input { text-align: center; font-size: 18px; letter-spacing: .3em; padding: 10px; }
+.lock-card input::placeholder { letter-spacing: 0; font-size: 14px; }
+.lock-card input[hidden] { display: none; }
+.lock-error { color: var(--bad); font-size: 13px; min-height: 20px; }
 
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--text); color: var(--surface); padding: 10px 18px; border-radius: 999px; font-weight: 600; z-index: 30; box-shadow: 0 6px 24px rgba(0, 0, 0, .25); max-width: 90vw; }
 .toast[hidden] { display: none; }

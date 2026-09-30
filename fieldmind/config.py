@@ -42,6 +42,10 @@ class Settings:
     # cloud snapshot instead of fetching memories one by one.
     snapshot_min_points: int = field(default_factory=lambda: int(_env("SNAPSHOT_MIN_POINTS", "200")))
 
+    # Pre-set device PIN. Without it, the first person to open the dashboard on the
+    # device itself chooses one.
+    pin: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_PIN"))
+
     ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://localhost:11434"))
     ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", ""))
 

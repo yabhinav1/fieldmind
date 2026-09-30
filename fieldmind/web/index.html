@@ -30,6 +30,7 @@
       <span class="switch-label">Network</span>
     </label>
     <button class="btn" id="sync-now">Sync now</button>
+    <button class="btn ghost" id="lock-now" title="Lock this device">Lock</button>
     <button class="btn ghost icon" id="theme" title="Switch light and dark" aria-label="Switch light and dark">◐</button>
   </div>
 </header>
@@ -152,6 +153,17 @@
 
 <div class="drawer" id="drawer" hidden>
   <div class="drawer-body" id="drawer-body"></div>
+</div>
+<div class="lock" id="lock" hidden>
+  <form class="lock-card" id="lock-form" autocomplete="off">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 4 9.5v13L16 29l12-6.5v-13z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="16" cy="16" r="4" fill="currentColor"/></svg>
+    <h1 id="lock-title">Device locked</h1>
+    <p class="hint" id="lock-hint">Enter the PIN for this device.</p>
+    <input id="lock-pin" type="password" inputmode="numeric" placeholder="PIN" aria-label="PIN" autocomplete="off">
+    <input id="lock-confirm" type="password" inputmode="numeric" placeholder="Repeat PIN" aria-label="Repeat PIN" autocomplete="off" hidden>
+    <button class="btn primary" type="submit" id="lock-submit">Unlock</button>
+    <p class="lock-error" id="lock-error" role="alert"></p>
+  </form>
 </div>
 <div class="toast" id="toast" hidden></div>
 

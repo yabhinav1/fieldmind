@@ -42,6 +42,7 @@ async function api(path, options = {}) {
   }
   const response = await fetch(path, init);
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401 && !path.startsWith("/api/auth/")) showLock();
   if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
   return data;
 }
@@ -98,6 +99,58 @@ async function attempt(action, button) {
   } finally {
     if (button) button.disabled = false;
   }
+}
+
+// ---------------------------------------------------------------- device lock
+
+async function showLock() {
+  if (state.locked) return;
+  state.locked = true;
+  closeDrawer();
+  let info;
+  try {
+    info = await api("/api/auth/state");
+  } catch (error) {
+    info = { configured: true, device: "This device" };
+  }
+  if (info.authenticated) { state.locked = false; return; }
+  state.setup = !info.configured;
+  $("lock-title").textContent = state.setup ? `Set a PIN for ${info.device}` : `${info.device} is locked`;
+  $("lock-hint").textContent = state.setup
+    ? (info.can_set_up ? "Choose a PIN of at least 4 characters. It protects every note on this device."
+      : "This device has no PIN yet. Set the first PIN on the device itself.")
+    : "Enter the PIN for this device.";
+  $("lock-confirm").hidden = !state.setup;
+  $("lock-submit").textContent = state.setup ? "Set PIN" : "Unlock";
+  $("lock-submit").disabled = state.setup && !info.can_set_up;
+  $("lock-error").textContent = "";
+  $("lock-pin").value = "";
+  $("lock-confirm").value = "";
+  $("lock").hidden = false;
+  $("lock-pin").focus();
+}
+
+async function submitLock(event) {
+  event.preventDefault();
+  const pin = $("lock-pin").value;
+  if (state.setup && pin !== $("lock-confirm").value) {
+    $("lock-error").textContent = "The two PINs do not match.";
+    return;
+  }
+  try {
+    await api(state.setup ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body: { pin } });
+  } catch (error) {
+    $("lock-error").textContent = error.message;
+    $("lock-pin").select();
+    return;
+  }
+  state.locked = false;
+  $("lock").hidden = true;
+  state.lastEvent = 0;
+  state.firstEvents = true;
+  $("events").innerHTML = "";
+  poll();
+  refresh();
 }
 
 // ---------------------------------------------------------------- badges
@@ -193,6 +246,7 @@ function renderEvents(events) {
 }
 
 async function poll() {
+  if (state.locked) return;
   try {
     const [status, log] = await Promise.all([
       api("/api/status"),
@@ -204,6 +258,7 @@ async function poll() {
     state.firstEvents = false;
     if (changed) refresh();
   } catch (error) {
+    if (state.locked) return;
     $("link-title").textContent = "Device not responding";
     $("link-sub").textContent = "Is the FieldMind process running?";
   }
@@ -295,22 +350,19 @@ async function runSearch(withAnswer = true) {
   if (!query) return;
   const seq = ++state.searchSeq;
   const body = { query, mode: state.mode, limit: 8, include_superseded: $("include-old").checked };
-  const [found, answer] = await Promise.all([
-    api("/api/search", { method: "POST", body }).catch((e) => { toast(e.message); return null; }),
-    withAnswer ? api("/api/ask", { method: "POST", body: { question: query } }).catch(() => null) : null,
-  ]);
+  if (withAnswer) {
+    $("answer").innerHTML = `<div class="answer pending"><div class="answer-head">Working out an answer on this device…</div></div>`;
+    api("/api/ask", { method: "POST", body: { question: query } })
+      .then((answer) => { if (seq === state.searchSeq) renderAnswer(answer); })
+      .catch(() => { if (seq === state.searchSeq) $("answer").innerHTML = ""; });
+  }
+  const found = await api("/api/search", { method: "POST", body }).catch((e) => { toast(e.message); return null; });
   if (seq !== state.searchSeq || !found) return;
 
   const t = found.timing_ms;
   const total = found.searched.local + found.searched.replica;
   $("search-meta").innerHTML =
     `<b>${t.search} ms</b> search · ${t.embed} ms to read the question · ${total} memories · <b>${found.network_calls} network calls</b>`;
-
-  if (answer) {
-    $("answer").innerHTML = answer.points.length ? `<div class="answer">
-      <div class="answer-head">Answer from ${esc(answer.engine)}</div>
-      ${answer.answer.split("\n").map((line) => `<p>${esc(line)}</p>`).join("")}</div>` : "";
-  }
 
   $("results").innerHTML = found.results.length ? found.results.map((r) => {
     const parts = [];
@@ -322,6 +374,20 @@ async function runSearch(withAnswer = true) {
     }
     return memoryItem(r, `<div class="signals">${parts.join("")}</div>`);
   }).join("") : `<div class="empty-state">Nothing in device memory matches that.</div>`;
+}
+
+function renderAnswer(answer) {
+  if (!answer.points.length) { $("answer").innerHTML = ""; return; }
+  const sources = answer.points.map((p, i) => `
+    <button class="source" data-open="${esc(p.memory.id)}"><span class="source-n">${i + 1}</span>
+      <span class="source-text">${esc(p.memory.text)}</span></button>`).join("");
+  const took = answer.timing_ms.total >= 1000
+    ? `${(answer.timing_ms.total / 1000).toFixed(1)} s` : `${Math.round(answer.timing_ms.total)} ms`;
+  const lines = answer.answer.split(String.fromCharCode(10)).filter((line) => line.trim());
+  $("answer").innerHTML = `<div class="answer">
+    <div class="answer-head">Answer from ${esc(answer.engine)} · ${took} · ${answer.network_calls} network calls</div>
+    ${lines.map((line) => `<p>${esc(line)}</p>`).join("")}
+    <div class="sources"><div class="answer-head">Based on</div>${sources}</div></div>`;
 }
 
 // ---------------------------------------------------------------- memory
@@ -605,6 +671,12 @@ $("seed").addEventListener("click", async (event) => {
 $("seed-cloud").addEventListener("click", async (event) => {
   const result = await attempt(() => api("/api/demo/seed-cloud", { method: "POST" }), event.target);
   if (result) { toast(`Published ${result.published} manuals to the cloud.`); poll(); }
+});
+
+$("lock-form").addEventListener("submit", submitLock);
+$("lock-now").addEventListener("click", async () => {
+  await api("/api/auth/logout", { method: "POST" }).catch(() => null);
+  showLock();
 });
 
 $("theme").addEventListener("click", () => {

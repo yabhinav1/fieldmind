@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--site")
     serve.add_argument("--author")
     serve.add_argument("--cloud-url")
+    serve.add_argument("--pin", help="pre-set the device PIN")
 
     seed = sub.add_parser("seed-cloud", help="publish reference knowledge to the cloud")
     seed.add_argument("--cloud-url")
@@ -35,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     settings = Settings()
-    for name in ("device", "port", "host", "site", "author", "cloud_url"):
+    for name in ("device", "port", "host", "site", "author", "cloud_url", "pin"):
         value = getattr(args, name, None)
         if value is not None:
             setattr(settings, "device_id" if name == "device" else name, value)
