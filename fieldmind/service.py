@@ -11,6 +11,7 @@ from typing import Any
 from .config import DENSE, SPARSE, Settings
 from .embedder import Embedder
 from .journal import Journal
+from .llm import LocalModel
 from .policy import PRIVATE, REDACTED, SHARED, PolicyEngine, find_asset
 from .store import Shard, build_filter
 
@@ -69,6 +70,7 @@ class MemoryService:
         self.replica = replica
         self.journal = journal
         self.policy = policy
+        self.llm = LocalModel(settings.ollama_url, settings.ollama_model)
 
     # -- lookup -----------------------------------------------------------
 
@@ -392,8 +394,8 @@ class MemoryService:
     # -- answer -----------------------------------------------------------
 
     def ask(self, question: str, limit: int = 6) -> dict:
-        """Answer from device memory. Uses a local language model when one is
-        configured, and otherwise composes the answer from the memories themselves."""
+        """Answer from device memory. A local language model phrases the answer when
+        one is running; otherwise it is composed from the memories themselves."""
         started = time.perf_counter()
         found = self.search(question, limit=limit)
         relevant = [r for r in found["results"] if r["score"] >= ANSWER_AT][:3]
@@ -403,10 +405,10 @@ class MemoryService:
             points.append({"memory": result, "earlier": earlier})
 
         engine, text = "device memory", None
-        if points and self.settings.ollama_model:
-            text = self._generate(question, points)
+        if points:
+            text = self.llm.answer(question, points)
             if text:
-                engine = f"local model ({self.settings.ollama_model})"
+                engine = f"on-device model {self.llm.model}"
         if text is None:
             text = self._compose(points)
         return {
@@ -433,23 +435,6 @@ class MemoryService:
                 line += f' {verb} an earlier note: "{earlier}"'
             lines.append(line)
         return "\n".join(lines)
-
-    def _generate(self, question: str, points: list[dict]) -> str | None:
-        import httpx
-
-        notes = "\n".join(f"[{i + 1}] {p['memory']['text']}" for i, p in enumerate(points))
-        prompt = (
-            "You are an assistant on a field technician's device. Answer the question using only the notes below. "
-            "Cite notes like [1]. If the notes do not answer it, say so.\n\n"
-            f"Notes:\n{notes}\n\nQuestion: {question}\nAnswer:"
-        )
-        try:
-            response = httpx.post(f"{self.settings.ollama_url}/api/generate", timeout=60,
-                                  json={"model": self.settings.ollama_model, "prompt": prompt, "stream": False})
-            response.raise_for_status()
-            return (response.json().get("response") or "").strip() or None
-        except Exception:
-            return None
 
     # -- helpers ----------------------------------------------------------
 

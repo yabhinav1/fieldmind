@@ -32,7 +32,7 @@ def fleet(tmp_path, embedder, names):
     devices = []
 
     def make(name: str, site: str = "plant-1"):
-        settings = Settings(device_id=name, site=site, data_root=tmp_path, sync_batch=100)
+        settings = Settings(device_id=name, site=site, data_root=tmp_path, sync_batch=100, ollama_model="")
         device = build(settings, embedder=embedder, cloud_client=cloud_client, names=names)
         devices.append(device)
         return device

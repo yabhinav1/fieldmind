@@ -85,6 +85,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         dev.journal.log("system", f"Device {settings.device_id} started. Embedding model loaded from {dev.embedder.loaded_from} "
                                   f"in {dev.embedder.load_seconds}s.")
         dev.sync.start()
+        dev.service.llm.warm()
         yield
         dev.close()
 
@@ -168,7 +169,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             "shards": {"local": local, "replica": replica},
             "engine": {"vector_store": "Qdrant Edge (in-process)", "dense_model": DENSE_MODEL,
                        "sparse_model": "BM25 (Qdrant Edge)", "dimensions": d.embedder.dim,
-                       "answer_model": settings.ollama_model or None,
+                       "answer_model": settings.ollama_model if d.service.llm.available() else None,
                        "name_model": "BERT NER (ONNX)" if d.names.available else None},
             "sync": {"last_sync_at": d.journal.get("last_sync_at"), "totals": d.journal.totals(), "interval": settings.sync_interval,
                      "batch": settings.sync_batch},

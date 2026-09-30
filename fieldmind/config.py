@@ -46,8 +46,10 @@ class Settings:
     # device itself chooses one.
     pin: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_PIN"))
 
-    ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://localhost:11434"))
-    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", ""))
+    # On-device language model for phrasing answers (scripts/llm.ps1 runs it).
+    # Leave the model empty to always compose answers from the notes themselves.
+    ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://127.0.0.1:11435"))
+    ollama_model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "llama3.2:3b"))
 
     @property
     def data_dir(self) -> Path:

@@ -33,7 +33,7 @@ def live(tmp_path, embedder, names):
 
     def make(name: str, **overrides):
         settings = Settings(device_id=name, site="plant-1", data_root=tmp_path, cloud_url=URL,
-                            collection=collection, sync_batch=100, **overrides)
+                            collection=collection, sync_batch=100, ollama_model="", **overrides)
         device = build(settings, embedder=embedder, names=names)
         devices.append(device)
         return device

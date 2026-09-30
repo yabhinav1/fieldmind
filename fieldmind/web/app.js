@@ -224,7 +224,8 @@ function renderStatus(s) {
       <dt>Vector store</dt><dd>${esc(s.engine.vector_store)}</dd>
       <dt>Meaning model</dt><dd>${esc(s.engine.dense_model.split("/").pop())} · ${s.engine.dimensions}d</dd>
       <dt>Keyword model</dt><dd>${esc(s.engine.sparse_model)}</dd>
-      <dt>Answers</dt><dd>${esc(s.engine.answer_model || "Composed from memory")}</dd>
+      <dt>Name masking</dt><dd>${esc(s.engine.name_model || "Title rules only")}</dd>
+      <dt>Answers</dt><dd>${esc(s.engine.answer_model || "Composed from notes")}</dd>
       <dt>Storage reserved</dt><dd>${bytes(disk)}</dd>
     </dl>`;
   renderFilters();
