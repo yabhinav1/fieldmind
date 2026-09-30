@@ -44,6 +44,8 @@ CLOUD_FIELDS = (
 # Fields a person can change, and therefore the ones that can conflict.
 CONTENT_FIELDS = ("text", "kind", "asset", "tags", "status", "supersedes", "superseded_by", "relation")
 
+SCOPE_WORDS = {PRIVATE: "private", SHARED: "shared", REDACTED: "shared with details masked"}
+
 RESOLVED_WORDS = re.compile(
     r"(?i)\b(fixed|repaired|replaced|resolved|cleaned|cleared|restored|normal|ok|okay|working|healthy|no leak|back to)\b")
 
@@ -215,7 +217,7 @@ class MemoryService:
             self.journal.enqueue(memory_id, "upsert", decision.priority, 0, None)
         self.journal.log(
             "capture",
-            f"Saved as {decision.scope}: {_clip(text)}",
+            f"Saved as {SCOPE_WORDS[decision.scope]}: {_clip(text)}",
             memory_id=memory_id, scope=decision.scope, category=decision.category, reasons=decision.reasons,
         )
 
