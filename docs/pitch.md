@@ -1,6 +1,6 @@
 # Pitch notes
 
-Deck: https://claude.ai/artifact/7UopPL3SF5MXzPFm3D2X52 (private until shared from its Share menu; it can be downloaded as PowerPoint or PDF there). Replace `[Team name]` on slides 1 and 9 and `[Repository link]` on slide 9.
+Deck: kept outside this repository. Replace `[Team name]` on slides 1 and 9 and `[Repository link]` on slide 9 before presenting.
 
 ## The pitch in one breath
 
