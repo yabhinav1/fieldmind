@@ -5,7 +5,7 @@ Target length: 3 minutes. Record at 1920×1080 with both dashboards side by side
 ## Before recording
 
 ```powershell
-.\scriptseset.ps1 -Pin 2468                      # clean slate, both devices restarted
+.\scripts\reset.ps1 -Pin 2468                      # clean slate, both devices restarted
 .\.venv\Scripts\python.exe -m fieldmind doctor     # every line should say ok
 ```
 
