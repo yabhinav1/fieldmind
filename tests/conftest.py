@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fieldmind.config import Settings  # noqa: E402
 from fieldmind.embedder import Embedder  # noqa: E402
+from fieldmind.ner import NameFinder  # noqa: E402
 from fieldmind.runtime import build  # noqa: E402
 
 
@@ -17,15 +18,22 @@ def embedder():
     return Embedder(Settings().models_dir)
 
 
+@pytest.fixture(scope="session")
+def names():
+    finder = NameFinder(Settings().models_dir)
+    assert finder.available, finder.error
+    return finder
+
+
 @pytest.fixture
-def fleet(tmp_path, embedder):
+def fleet(tmp_path, embedder, names):
     """Two devices on the same site, sharing one cloud."""
     cloud_client = QdrantClient(":memory:")
     devices = []
 
     def make(name: str, site: str = "plant-1"):
         settings = Settings(device_id=name, site=site, data_root=tmp_path, sync_batch=100)
-        device = build(settings, embedder=embedder, cloud_client=cloud_client)
+        device = build(settings, embedder=embedder, cloud_client=cloud_client, names=names)
         devices.append(device)
         return device
 

@@ -2,8 +2,9 @@
 
 Two kinds of evidence are combined:
 
-* pattern detectors for things that must never be uploaded as written
-  (credentials, contact details, identity numbers, named people)
+* detectors for things that must never be uploaded as written: patterns for
+  credentials, contact details and identity numbers, and a name recognition
+  model for people
 * a semantic classifier that compares the note with a handful of example
   sentences per category, using the same local embedding model as search
 
@@ -22,6 +23,7 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 
 from .embedder import Embedder
+from .ner import NameFinder
 
 PRIVATE, SHARED, REDACTED = "private", "shared", "redacted"
 PRIORITY_LABEL = {0: "low", 1: "normal", 2: "urgent"}
@@ -134,8 +136,9 @@ class Decision:
 
 
 class PolicyEngine:
-    def __init__(self, embedder: Embedder):
+    def __init__(self, embedder: Embedder, names: NameFinder | None = None):
         self._embedder = embedder
+        self._names_model = names
         self._names = list(CATEGORIES)
         self._prototypes = [np.asarray(embedder.dense(CATEGORIES[name][2])) for name in self._names]
 
@@ -153,13 +156,33 @@ class PolicyEngine:
 
     def detect(self, text: str) -> list[dict]:
         found, taken = [], []
+        people: list[tuple[int, int]] = []
         for type_, group, pattern in DETECTORS:
             for match in pattern.finditer(text):
-                start, end = match.span(1) if type_ == "person" else match.span()
+                if type_ == "person":
+                    people.append(match.span(1))
+                    continue
+                start, end = match.span()
                 if any(start < e and end > s for s, e in taken):
                     continue
                 taken.append((start, end))
                 found.append({"type": type_, "group": group, "start": start, "end": end})
+
+        if self._names_model is not None:
+            assets = [m.span() for m in ASSET.finditer(text)]
+            people.extend(s for s in self._names_model.find(text)
+                          if not any(s[0] < e and s[1] > a for a, e in assets))
+        # A name can be found by both the title rule and the model, sometimes with
+        # different edges. Keep the widest span so no part of it is left unmasked.
+        merged: list[list[int]] = []
+        for start, end in sorted(people):
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        for start, end in merged:
+            if not any(start < e and end > s for s, e in taken):
+                found.append({"type": "person", "group": "identity", "start": start, "end": end})
         return sorted(found, key=lambda s: s["start"])
 
     def redact(self, text: str, signals: list[dict]) -> str:

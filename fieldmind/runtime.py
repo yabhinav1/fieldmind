@@ -8,6 +8,7 @@ from .cloud import Cloud
 from .config import Settings
 from .embedder import Embedder
 from .journal import Journal
+from .ner import NameFinder
 from .policy import PolicyEngine
 from .service import MemoryService
 from .store import Shard
@@ -18,6 +19,7 @@ from .sync import SyncEngine
 class Device:
     settings: Settings
     embedder: Embedder
+    names: NameFinder
     journal: Journal
     service: MemoryService
     cloud: Cloud
@@ -35,13 +37,15 @@ class Device:
         self.journal.close()
 
 
-def build(settings: Settings, embedder: Embedder | None = None, cloud_client=None) -> Device:
+def build(settings: Settings, embedder: Embedder | None = None, cloud_client=None,
+          names: NameFinder | None = None) -> Device:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     embedder = embedder or Embedder(settings.models_dir)
+    names = names or NameFinder(settings.models_dir)
     journal = Journal(settings.journal_path)
     local = Shard(settings.local_shard_dir, "local")
     replica = Shard(settings.replica_shard_dir, "replica")
-    service = MemoryService(settings, embedder, local, replica, journal, PolicyEngine(embedder))
+    service = MemoryService(settings, embedder, local, replica, journal, PolicyEngine(embedder, names))
     cloud = Cloud(settings.cloud_url, settings.cloud_api_key, settings.collection, client=cloud_client)
     sync = SyncEngine(service, journal, cloud)
-    return Device(settings, embedder, journal, service, cloud, sync)
+    return Device(settings, embedder, names, journal, service, cloud, sync)

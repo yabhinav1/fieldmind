@@ -4,8 +4,8 @@ from fieldmind.policy import PolicyEngine, find_asset
 
 
 @pytest.fixture(scope="module")
-def policy(embedder):
-    return PolicyEngine(embedder)
+def policy(embedder, names):
+    return PolicyEngine(embedder, names)
 
 
 @pytest.mark.parametrize("text, scope, category", [
@@ -59,3 +59,31 @@ def test_sharing_override_still_masks_personal_details(policy):
 def test_asset_tags_are_extracted():
     assert find_asset("Pump P-102 bearing vibration high at 7.2 mm/s") == "P-102"
     assert find_asset("winding temperature 96C") is None
+
+
+@pytest.mark.parametrize("text, hidden", [
+    ("Suresh fixed pump P-102 seal yesterday", ["Suresh"]),
+    ("Motor M-9 tripped twice, Anil restarted it both times", ["Anil"]),
+    ("Spoke with Deepak Yadav about the K-4 compressor drain valve", ["Deepak", "Yadav"]),
+    ("Mohammed and Lakshmi replaced the gasket on HX-5", ["Mohammed", "Lakshmi"]),
+    ("Asked Priya to check valve V-17 before the shift ends", ["Priya"]),
+])
+def test_bare_names_are_masked_without_a_title(policy, text, hidden):
+    decision = policy.decide(text)
+    assert decision.scope == "redacted"
+    for name in hidden:
+        assert name not in decision.shared_text
+    assert "[person removed]" in decision.shared_text
+
+
+def test_equipment_and_vendors_are_not_mistaken_for_people(policy):
+    for text in ("Pump P-102 bearing vibration high at 7.2 mm/s, recommend replacement",
+                 "Siemens drive fault on Conveyor C-3, reset from the MCC-2 panel",
+                 "SCADA panel alarm on Boiler B-2, pressure 6.1 bar"):
+        decision = policy.decide(text)
+        assert decision.scope == "shared" and not decision.signals, text
+
+
+def test_policy_still_works_without_the_name_model(embedder):
+    decision = PolicyEngine(embedder).decide("Technician Ravi Kumar replaced the V-17 gasket")
+    assert decision.scope == "redacted" and "Ravi" not in decision.shared_text
