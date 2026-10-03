@@ -50,7 +50,7 @@ services:
       FIELDMIND_DEVICE: edge-a
       FIELDMIND_AUTHOR: technician-a
     ports:
-      - "${EDGE_A_PORT:-8001}:8000"
+      - "${EDGE_A_PORT:-8001}:7860"
     volumes:
       - ./models:/models
       - edge_a_data:/data
@@ -58,7 +58,7 @@ services:
     # Ready once the models are loaded. edge-b waits for this so the two devices
     # never download the same model files at the same time.
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/auth/state', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/api/auth/state', timeout=3)"]
       interval: 5s
       timeout: 5s
       retries: 120
@@ -73,7 +73,7 @@ services:
       FIELDMIND_DEVICE: edge-b
       FIELDMIND_AUTHOR: technician-b
     ports:
-      - "${EDGE_B_PORT:-8002}:8000"
+      - "${EDGE_B_PORT:-8002}:7860"
     volumes:
       - ./models:/models
       - edge_b_data:/data
@@ -92,7 +92,7 @@ services:
       FIELDMIND_DEVICE: edge-c
       FIELDMIND_AUTHOR: technician-c
     ports:
-      - "8003:8000"
+      - "8003:7860"
     volumes:
       - ./models:/models
       - edge_c_data:/data

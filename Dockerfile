@@ -8,9 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY fieldmind fieldmind
 
 ENV FIELDMIND_HOST=0.0.0.0 \
-    FIELDMIND_PORT=8000 \
+    FIELDMIND_PORT=7860 \
     FIELDMIND_DATA=/data \
     FIELDMIND_MODELS=/models
 
-EXPOSE 8000
+EXPOSE 7860
 CMD ["python", "-m", "fieldmind", "serve"]
