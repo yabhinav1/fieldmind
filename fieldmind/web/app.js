@@ -826,6 +826,69 @@ try {
   if (saved) document.documentElement.dataset.theme = saved;
 } catch (error) { /* storage unavailable */ }
 
+// ---------------------------------------------------------------- voice
+
+// Hands are often gloved or dirty in the field. Dictation uses the browser's own
+// speech recognition; where the browser can run it on the device (recent Chrome
+// and Safari offer this for some languages) it is asked to, otherwise the browser
+// sends audio to its vendor's speech service, which needs internet.
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let listening = null;
+
+function stopDictation() {
+  if (listening) { try { listening.recognition.stop(); } catch (error) { /* already stopped */ } }
+}
+
+function startDictation(button) {
+  const target = $(button.dataset.dictate);
+  const recognition = new Recognition();
+  recognition.lang = navigator.language || "en-IN";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  try { recognition.processLocally = true; } catch (error) { /* not offered by this browser */ }
+  const before = target.value ? `${target.value.trim()} ` : "";
+  recognition.onresult = (event) => {
+    const heard = Array.from(event.results).map((r) => r[0].transcript).join(" ").trim();
+    target.value = before + heard;
+    target.dispatchEvent(new Event("input"));
+  };
+  recognition.onerror = (event) => {
+    if (event.error === "not-allowed") toast("Microphone access was refused.");
+    else if (event.error === "network") toast("This browser's speech service needs internet. Type the note instead.");
+    else if (event.error !== "aborted" && event.error !== "no-speech") toast(`Dictation stopped: ${event.error}`);
+  };
+  recognition.onend = () => {
+    button.classList.remove("listening");
+    button.textContent = button.dataset.idle;
+    listening = null;
+    if (button.dataset.submit && target.value.trim()) $(button.dataset.submit).requestSubmit();
+    else target.focus();
+  };
+  button.dataset.idle = button.textContent;
+  button.textContent = button.classList.contains("icon") ? "■" : "■ Listening…";
+  button.classList.add("listening");
+  listening = { recognition, button };
+  recognition.start();
+}
+
+if (Recognition) {
+  document.querySelectorAll("[data-dictate]").forEach((button) => {
+    button.hidden = false;
+    button.addEventListener("click", () => {
+      if (listening) { stopDictation(); return; }
+      startDictation(button);
+    });
+  });
+}
+
+// ---------------------------------------------------------------- install
+
+// Installable on a phone or tablet. The worker caches only the page shell, never
+// anything from /api/, so no note text lives in the browser.
+if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname))) {
+  navigator.serviceWorker.register("/sw.js").catch(() => { /* the dashboard works without it */ });
+}
+
 // Deep links: #sync opens a tab, ?q=... runs a search, ?note=... drafts a note.
 window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
 if (location.hash) showTab(location.hash.slice(1));

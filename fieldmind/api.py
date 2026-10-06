@@ -365,5 +365,16 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
     def index():
         return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-store"})
 
+    # The service worker and manifest must sit at the root for the whole dashboard
+    # to be installable and to keep its shell available offline.
+    @app.get("/sw.js")
+    def service_worker():
+        return FileResponse(WEB / "sw.js", media_type="application/javascript",
+                            headers={"Cache-Control": "no-store", "Service-Worker-Allowed": "/"})
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        return FileResponse(WEB / "manifest.webmanifest", media_type="application/manifest+json")
+
     app.mount("/static", StaticFiles(directory=WEB), name="static")
     return app

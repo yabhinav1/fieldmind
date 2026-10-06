@@ -1,0 +1,14 @@
+{
+  "name": "FieldMind",
+  "short_name": "FieldMind",
+  "description": "Offline-first memory for field technicians. Record, search and ask on the device; sync when a link exists.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

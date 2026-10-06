@@ -410,3 +410,7 @@ td.num, th.num { text-align: right; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Dictation */
+.btn.mic.listening { color: var(--bad); border-color: var(--bad); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 138, 128, .45); } 50% { box-shadow: 0 0 0 6px rgba(255, 138, 128, 0); } }

@@ -3,7 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FieldMind">
 <title>FieldMind</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon.svg">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -55,6 +62,8 @@
           <p class="hint">Write what you saw or did. The device decides what stays here and what is shared.</p>
           <textarea id="note" rows="4" placeholder="Pump P-102 bearing vibration high at 7.2 mm/s…"></textarea>
           <div class="row">
+            <button class="btn mic" type="button" id="dictate-note" data-dictate="note" hidden
+              title="Dictate the note. Uses the browser's speech service." aria-label="Dictate the note">🎙 Dictate</button>
             <select id="scope-override" aria-label="Sharing">
               <option value="">Let the device decide</option>
               <option value="private">Keep on this device</option>
@@ -76,6 +85,8 @@
           <p class="hint">Runs entirely on this device, online or not.</p>
           <form id="search-form" class="row">
             <input id="query" type="search" placeholder="Which machine is running hot?" autocomplete="off">
+            <button class="btn mic icon" type="button" id="dictate-query" data-dictate="query" data-submit="search-form" hidden
+              title="Ask by voice. Uses the browser's speech service." aria-label="Ask by voice">🎙</button>
             <button class="btn primary" type="submit">Search</button>
           </form>
           <div class="row wrap">

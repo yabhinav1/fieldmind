@@ -130,3 +130,14 @@ def test_capture_and_search_over_http(app):
         assert saved["memory"]["scope"] == "redacted" and "Suresh" not in saved["memory"]["shared_text"]
         found = client.post("/api/search", json={"query": "pump seal repair"}).json()
         assert found["results"][0]["id"] == saved["memory"]["id"]
+
+
+def test_the_dashboard_is_installable_and_its_shell_needs_no_pin(app):
+    with TestClient(app, client=ELSEWHERE) as client:
+        manifest = client.get("/manifest.webmanifest")
+        assert manifest.status_code == 200 and manifest.json()["display"] == "standalone"
+        worker = client.get("/sw.js")
+        assert worker.status_code == 200 and "javascript" in worker.headers["content-type"]
+        assert worker.headers["service-worker-allowed"] == "/"
+        assert "/api/" in worker.text, "the worker names the API prefix it must never cache"
+        assert client.get("/static/icon.svg").status_code == 200
