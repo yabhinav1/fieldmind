@@ -40,8 +40,12 @@ from qdrant_edge import (
 )
 
 from .config import DENSE, DENSE_DIM, SPARSE
+from .vault import Vault
 
 INDEXED_FIELDS = ("scope", "sync_state", "status", "kind", "asset", "site", "device_id")
+# The text of these scopes is sealed on disk: private notes, and the unmasked
+# original of a note whose cloud copy is masked.
+SEALED_SCOPES = ("private", "redacted")
 
 
 def build_filter(
@@ -65,11 +69,17 @@ def build_filter(
 
 
 class Shard:
-    def __init__(self, path: Path, name: str):
+    def __init__(self, path: Path, name: str, vault: Vault | None = None):
         self.name = name
         self.path = path
+        self.vault = vault or Vault(None)
         self._lock = threading.RLock()
         self._open()
+
+    def _sealed(self, payload: dict) -> dict:
+        if not self.vault.active or payload.get("scope") not in SEALED_SCOPES or "text" not in payload:
+            return payload
+        return {**payload, "text": self.vault.seal(payload["text"])}
 
     def _open(self) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
@@ -90,14 +100,14 @@ class Shard:
     # -- writes -----------------------------------------------------------
 
     def upsert(self, memory_id: str, dense: list[float], sparse: SparseVector, payload: dict) -> None:
-        point = Point(memory_id, {DENSE: dense, SPARSE: sparse}, payload)
+        point = Point(memory_id, {DENSE: dense, SPARSE: sparse}, self._sealed(payload))
         with self._lock:
             self._shard.update(UpdateOperation.upsert_points([point]))
 
     def set_payload(self, memory_id: str, payload: dict) -> None:
         """Replace the whole payload, leaving the vectors untouched."""
         with self._lock:
-            self._shard.update(UpdateOperation.overwrite_payload([memory_id], payload))
+            self._shard.update(UpdateOperation.overwrite_payload([memory_id], self._sealed(payload)))
 
     def delete(self, memory_ids: Iterable[str]) -> None:
         ids = list(memory_ids)
@@ -175,7 +185,7 @@ class Shard:
         request = QueryRequest(limit=limit, query=Query.Nearest(vector, using=using), filter=flt, with_payload=True)
         with self._lock:
             hits = self._shard.query(request)
-        return [{"id": str(h.id), "score": float(h.score), "payload": h.payload or {}, "shard": self.name} for h in hits]
+        return [{"score": float(h.score), **self._record(h, False)} for h in hits]
 
     def info(self) -> dict:
         with self._lock:
@@ -189,7 +199,10 @@ class Shard:
         }
 
     def _record(self, record, with_vector: bool) -> dict:
-        out = {"id": str(record.id), "payload": record.payload or {}, "shard": self.name}
+        payload = record.payload or {}
+        if "text" in payload:
+            payload["text"] = self.vault.unseal(payload["text"])
+        out = {"id": str(record.id), "payload": payload, "shard": self.name}
         if with_vector and record.vector:
             out["dense"] = record.vector.get(DENSE)
             out["sparse"] = record.vector.get(SPARSE)

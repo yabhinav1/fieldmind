@@ -14,6 +14,7 @@ from .reranker import Reranker
 from .service import MemoryService
 from .store import Shard
 from .sync import SyncEngine
+from .vault import Vault
 
 
 @dataclass
@@ -26,6 +27,7 @@ class Device:
     cloud: Cloud
     sync: SyncEngine
     reranker: Reranker | None = None
+    vault: Vault | None = None
 
     closed: bool = False
 
@@ -46,11 +48,12 @@ def build(settings: Settings, embedder: Embedder | None = None, cloud_client=Non
     names = names or NameFinder(settings.models_dir)
     if reranker is None and settings.rerank:
         reranker = Reranker(settings.models_dir)
-    journal = Journal(settings.journal_path)
-    local = Shard(settings.local_shard_dir, "local")
-    replica = Shard(settings.replica_shard_dir, "replica")
+    vault = Vault.open(settings.vault_key_file)
+    journal = Journal(settings.journal_path, vault=vault)
+    local = Shard(settings.local_shard_dir, "local", vault)
+    replica = Shard(settings.replica_shard_dir, "replica", vault)
     policy = PolicyEngine(embedder, names, store=journal)
     service = MemoryService(settings, embedder, local, replica, journal, policy, reranker=reranker)
     cloud = Cloud(settings.cloud_url, settings.cloud_api_key, settings.collection, client=cloud_client)
     sync = SyncEngine(service, journal, cloud)
-    return Device(settings, embedder, names, journal, service, cloud, sync, reranker)
+    return Device(settings, embedder, names, journal, service, cloud, sync, reranker, vault)

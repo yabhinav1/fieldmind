@@ -242,6 +242,7 @@ function renderStatus(s) {
       <dt>Reranking</dt><dd>${esc(s.engine.reranker || "Off")}</dd>
       <dt>Learned choices</dt><dd>${s.engine.learned_examples || 0} from this device's overrides</dd>
       <dt>Answers</dt><dd>${esc(s.engine.answer_model || "Composed from notes")}</dd>
+      <dt>On disk</dt><dd>${s.engine.sealed ? "Private text and activity sealed with the device key" : "Not sealed"}</dd>
       <dt>Storage reserved</dt><dd>${bytes(disk)}</dd>
     </dl>`;
   $("rerank-label").hidden = !s.engine.reranker;

@@ -55,6 +55,11 @@ class Settings:
     # Pre-set device PIN. Without it, the first person to open the dashboard on the
     # device itself chooses one.
     pin: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_PIN"))
+    # Seal private and masked note text and the activity log on disk with a key
+    # kept in the device's data directory (or FIELDMIND_KEY_FILE). 0 turns it off.
+    encrypt: bool = field(default_factory=lambda: _env("ENCRYPT", "1") not in ("0", "false", "no", ""))
+    key_file: Path | None = field(default_factory=lambda: Path(os.environ["FIELDMIND_KEY_FILE"])
+                                  if os.environ.get("FIELDMIND_KEY_FILE") else None)
     # /metrics holds only counters and timings, no note text. Set a token to require
     # "Authorization: Bearer <token>" on it anyway.
     metrics_token: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_METRICS_TOKEN"))
@@ -83,3 +88,9 @@ class Settings:
     @property
     def journal_path(self) -> Path:
         return self.data_dir / "journal.sqlite"
+
+    @property
+    def vault_key_file(self) -> Path | None:
+        if not self.encrypt:
+            return None
+        return self.key_file or self.data_dir / ".key"

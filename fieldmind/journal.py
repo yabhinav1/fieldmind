@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .vault import Vault
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS outbox (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,11 +81,12 @@ PRUNE_EVERY = 256
 
 class Journal:
     def __init__(self, path: Path, keep_events: int = KEEP_EVENTS, keep_runs: int = KEEP_RUNS,
-                 keep_finished_ops: int = KEEP_FINISHED_OPS):
+                 keep_finished_ops: int = KEEP_FINISHED_OPS, vault: Vault | None = None):
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         self._db.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self.vault = vault or Vault(None)
         self._keep = {"events": keep_events, "sync_runs": keep_runs, "outbox": keep_finished_ops}
         self._writes = 0
         with self._lock:
@@ -137,12 +140,15 @@ class Journal:
     # -- activity ---------------------------------------------------------
 
     def log(self, type_: str, message: str, level: str = "info", **data: Any) -> None:
+        """Record an activity line. Messages quote note text, so they are sealed on disk."""
         self._run("INSERT INTO events(ts, type, level, message, data) VALUES(?, ?, ?, ?, ?)",
-                  (time.time(), type_, level, message, json.dumps(data) if data else None))
+                  (time.time(), type_, level, self.vault.seal(message), json.dumps(data) if data else None))
         self._maybe_prune()
 
     def events(self, after: int = 0, limit: int = 200) -> list[dict]:
         rows = self._all("SELECT * FROM events WHERE id > ? ORDER BY id DESC LIMIT ?", (after, limit))
+        for row in rows:
+            row["message"] = self.vault.unseal(row["message"])
         return rows[::-1]
 
     # -- outbox -----------------------------------------------------------
