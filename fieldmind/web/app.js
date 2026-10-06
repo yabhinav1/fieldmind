@@ -499,6 +499,37 @@ async function openMemory(id) {
 
 function closeDrawer() { $("drawer").hidden = true; state.guideOpen = false; }
 
+function openPinChange() {
+  state.guideOpen = false;
+  $("drawer-body").innerHTML = `
+    <div class="drawer-head"><h2>Change the PIN</h2><button class="btn ghost small" data-close>Close</button></div>
+    <p class="hint">Every other open session on this device is closed when the PIN changes.</p>
+    <form id="pin-form" autocomplete="off">
+      <div class="field"><label for="pin-current">Current PIN</label><input id="pin-current" type="password" inputmode="numeric"></div>
+      <div class="field"><label for="pin-new">New PIN, at least 4 characters</label><input id="pin-new" type="password" inputmode="numeric"></div>
+      <div class="field"><label for="pin-repeat">Repeat the new PIN</label><input id="pin-repeat" type="password" inputmode="numeric"></div>
+      <div class="row between"><span class="lock-error" id="pin-error" role="alert"></span>
+        <button class="btn primary" type="submit">Change PIN</button></div>
+    </form>`;
+  $("drawer").hidden = false;
+  $("pin-current").focus();
+  $("pin-form").onsubmit = async (event) => {
+    event.preventDefault();
+    if ($("pin-new").value !== $("pin-repeat").value) {
+      $("pin-error").textContent = "The two new PINs do not match.";
+      return;
+    }
+    try {
+      await api("/api/auth/pin", { method: "POST", body: { current: $("pin-current").value, new: $("pin-new").value } });
+    } catch (error) {
+      $("pin-error").textContent = error.message;
+      return;
+    }
+    closeDrawer();
+    toast("PIN changed.");
+  };
+}
+
 // ---------------------------------------------------------------- demo guide
 
 const GUIDE = [
@@ -749,6 +780,7 @@ $("seed-cloud").addEventListener("click", async (event) => {
 });
 
 $("guide").addEventListener("click", openGuide);
+$("change-pin").addEventListener("click", openPinChange);
 $("lock-form").addEventListener("submit", submitLock);
 $("lock-now").addEventListener("click", async () => {
   await api("/api/auth/logout", { method: "POST" }).catch(() => null);

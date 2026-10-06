@@ -67,6 +67,11 @@ class PinBody(BaseModel):
     pin: str
 
 
+class ChangePinBody(BaseModel):
+    current: str
+    new: str
+
+
 class ResolveBody(BaseModel):
     choice: str
     text: str | None = None
@@ -152,6 +157,24 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         auth().logout(request.cookies.get(cookie))
         response.delete_cookie(cookie)
         return {"authenticated": False}
+
+    @app.post("/api/auth/pin")
+    def auth_change_pin(body: ChangePinBody, request: Request):
+        """Change the PIN. Needs an open session and the current PIN; other sessions are closed."""
+        if not auth().valid(request.cookies.get(cookie)):
+            raise HTTPException(401, "This device is locked.")
+        try:
+            auth().login(body.current)
+            auth().set_pin(body.new)
+        except Locked as error:
+            raise HTTPException(429, str(error)) from None
+        except PermissionError:
+            raise HTTPException(401, "The current PIN is wrong.") from None
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        auth().logout_all(except_token=request.cookies.get(cookie))
+        dev().journal.log("security", "The device PIN was changed.")
+        return {"changed": True}
 
     # -- status -----------------------------------------------------------
 

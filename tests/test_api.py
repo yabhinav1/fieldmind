@@ -53,6 +53,45 @@ def test_login_logout_and_lockout(app):
         assert client.post("/api/auth/login", json={"pin": "2468"}).status_code == 429
 
 
+def test_sessions_and_lockout_survive_a_restart(fleet):
+    app = create_app(device=fleet("edge-a"))
+    with TestClient(app, client=ON_DEVICE) as client:
+        client.post("/api/auth/setup", json={"pin": "2468"})
+        cookie = dict(client.cookies)
+        remote = TestClient(app, client=ELSEWHERE)
+        for _ in range(4):
+            remote.post("/api/auth/login", json={"pin": "0000"})
+
+    app = create_app(device=fleet("edge-a"))  # same data directory, as after a reboot
+    with TestClient(app, client=ON_DEVICE) as client:
+        client.cookies.update(cookie)
+        assert client.get("/api/status").status_code == 200, "the session should outlive the process"
+        # Four wrong guesses were made before the restart; the fifth still locks the device.
+        remote = TestClient(app, client=ELSEWHERE)
+        assert remote.post("/api/auth/login", json={"pin": "0000"}).status_code == 429
+
+
+def test_changing_the_pin_keeps_the_new_one_over_a_preset(fleet):
+    device = fleet("edge-a")
+    device.settings.pin = "2468"
+    app = create_app(device=device)
+    with TestClient(app, client=ON_DEVICE) as client:
+        client.post("/api/auth/login", json={"pin": "2468"})
+        other = TestClient(app, client=ON_DEVICE)
+        other.post("/api/auth/login", json={"pin": "2468"})
+        assert client.post("/api/auth/pin", json={"current": "0000", "new": "1357"}).status_code == 401
+        assert client.post("/api/auth/pin", json={"current": "2468", "new": "13"}).status_code == 400
+        assert client.post("/api/auth/pin", json={"current": "2468", "new": "1357"}).status_code == 200
+        assert client.get("/api/status").status_code == 200, "the session that changed the PIN stays open"
+        assert other.get("/api/status").status_code == 401, "every other session is closed"
+
+    again = fleet("edge-a")
+    again.settings.pin = "2468"  # the preset is still in the environment after a restart
+    with TestClient(create_app(device=again), client=ON_DEVICE) as client:
+        assert client.post("/api/auth/login", json={"pin": "2468"}).status_code == 401
+        assert client.post("/api/auth/login", json={"pin": "1357"}).status_code == 200
+
+
 def test_pin_is_not_stored_in_plain_text(fleet):
     device = fleet("edge-a")
     device.settings.pin = "2468"
