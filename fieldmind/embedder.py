@@ -20,22 +20,22 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 class Embedder:
     dim = DENSE_DIM
-    model_name = DENSE_MODEL
 
-    def __init__(self, models_dir: Path):
+    def __init__(self, models_dir: Path, model: str = DENSE_MODEL):
         from fastembed import TextEmbedding
         from loguru import logger
 
         logger.disable("fastembed")
 
+        self.model_name = model
         models_dir.mkdir(parents=True, exist_ok=True)
         started = time.perf_counter()
         try:
-            self._dense = TextEmbedding(DENSE_MODEL, cache_dir=str(models_dir), local_files_only=True)
+            self._dense = TextEmbedding(model, cache_dir=str(models_dir), local_files_only=True)
             self.loaded_from = "disk"
         except Exception:
             # First run only: fetch the model once, then every later start is offline.
-            self._dense = TextEmbedding(DENSE_MODEL, cache_dir=str(models_dir))
+            self._dense = TextEmbedding(model, cache_dir=str(models_dir))
             self.loaded_from = "download"
         self._bm25 = Bm25()
         self._lock = threading.Lock()

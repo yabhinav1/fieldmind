@@ -436,3 +436,25 @@ def test_a_newer_note_outranks_an_equal_older_one(fleet):
     record["payload"]["updated_at"] -= 40 * 86400  # the first was written six weeks ago
     a.service.local.set_payload(old, record["payload"])
     assert [r["id"] for r in a.service.search("P-102 bearing vibration")["results"][:2]] == [new, old]
+
+
+def test_a_conflict_can_be_staged_in_one_click(fleet):
+    a = fleet("edge-a")
+    result = a.sync.stage_conflict()
+    assert result["conflicts"] == 1 and result["open"] == 1 and result["other_device"] == "edge-b"
+    conflict = a.journal.conflicts("open")[0]
+    assert conflict["memory_id"] == result["memory_id"] and conflict["fields"] == ["text"]
+    assert "stop the pump immediately" in conflict["cloud_payload"]["text"], "the simulated other device's edit"
+    assert "replace at next shutdown" in a.service.get(result["memory_id"])["text"], "this device's own edit"
+    assert "stop the pump immediately" in cloud_texts(a)[0], "nothing was overwritten in the cloud"
+    a.sync.resolve(conflict["id"], "theirs")
+    assert a.sync.run_once()["conflicts"] == 0
+
+
+def test_staging_a_conflict_needs_the_cloud(fleet):
+    import pytest
+
+    a = fleet("edge-a")
+    a.sync.set_forced_offline(True)
+    with pytest.raises(RuntimeError, match="not reachable"):
+        a.sync.stage_conflict()

@@ -30,7 +30,7 @@ Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 | Work through intermittent connectivity | Every change goes to a durable outbox first. It survives restarts and replays when the link returns, urgent items first. |
 | Sync with Qdrant Server | Uploads are compare-and-swap writes. Small downloads use a manifest diff. A device that is far behind restores its replica from a Qdrant Server shard snapshot. |
 | Evolving memory, updates and conflicts | Follow-up notes replace earlier beliefs. Concurrent edits merge field by field. True clashes wait for a person and nothing is overwritten. |
-| Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN. Installable on a phone; notes can be dictated. |
+| Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN. Installable on a phone with a thumb-friendly layout; notes can be dictated; a shift report downloads as Markdown; an encrypted backup moves a device's private memory to a replacement. |
 | A meaningful edge-to-cloud workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes and photos flow back to the fleet. When the cloud is out of reach, devices on the same network learn from each other directly. |
 
 [docs/requirements.md](docs/requirements.md) maps each goal to its code and tests.
@@ -109,6 +109,7 @@ Every memory carries a revision number. The device remembers which cloud revisio
 | One queued change keeps failing while the cloud is up | Set aside after five attempts so the rest of the queue drains; retried from the Sync tab |
 | Only tags or kind changed | The payload travels without the vectors |
 | Cloud unreachable for days | Devices on the same network exchange shareable notes directly (`FIELDMIND_PEERS`, one fleet token); the cloud settles revisions when it returns |
+| Two notes match a question equally well | The more recent one comes first; the boost fades over thirty days |
 
 ![A conflict: two devices changed the same note while offline](docs/img/conflict.png)
 
@@ -206,7 +207,7 @@ Open both dashboards side by side and unlock them. The **Demo guide** button lis
 6. **Reconnect.** Turn *Network* on. The queue drains, the gas leak note goes first.
 7. **Prove privacy.** Open the *Cloud* tab. The health note and the password are not there. Names and the phone number are masked.
 8. **Fleet learning.** On edge-b, search `pump bearing vibration`. The note from edge-a is there.
-9. **Conflict.** Turn *Network* off on both. Open the same note on each and change the text differently. Turn edge-a on, then edge-b. edge-b shows *Needs a decision* on the *Sync* tab with both versions side by side.
+9. **Conflict.** Either click *Stage a conflict* in the Demo guide (another device's edit lands in the cloud while this device edits the same note differently), or do it by hand: turn *Network* off on both, change the same note differently on each, turn edge-a on, then edge-b. The *Sync* tab shows *Needs a decision* with both versions side by side.
 10. **Evolving memory.** On edge-b, record `Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal`. Ask edge-a `what is the condition of pump P-102`. It answers with the new state.
 11. **Snapshot restore.** On the *Sync* tab, click *Rebuild cloud replica*. The activity log reports a restore from a Qdrant Server snapshot. Private notes are untouched.
 
@@ -214,7 +215,7 @@ Open both dashboards side by side and unlock them. The **Demo guide** button lis
 
 ## Tests
 
-96 tests, run on every push by GitHub Actions against a real Qdrant Server. Most run two devices against a shared cloud and cover offline work, restart safety, privacy, name masking, priority, merging, conflicts, deletion, withdrawal, recovery, the PIN lock, the source check on generated answers, the reranker, policy learning, peer exchange, photos, sealing on disk, a failing outbox entry, an edit made mid-upload, a snapshot restore that fails midway and captures racing sync cycles. Three need a real Qdrant Server on `localhost:6333` (snapshot restore, real outage detection) and are skipped when none is running.
+106 tests, run on every push by GitHub Actions against a real Qdrant Server and a real browser. Most run two devices against a shared cloud and cover offline work, restart safety, privacy, name masking, priority, merging, conflicts, deletion, withdrawal, recovery, the PIN lock, the source check on generated answers, the reranker, policy learning, peer exchange, photos, sealing on disk, a failing outbox entry, an edit made mid-upload, a snapshot restore that fails midway, captures racing sync cycles, staged conflicts, the shift report, encrypted backup and restore, a Hindi note found by an English question, and the dashboard driven in Chromium (Playwright). Three need a real Qdrant Server on `localhost:6333` (snapshot restore, real outage detection) and are skipped when none is running.
 
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
@@ -246,6 +247,7 @@ Disk: each device reserves about 430 MB, because every Qdrant Edge shard preallo
 - Pull sync compares a slim index (revision and state) of every memory in the device's site on each cycle. That is fine for tens of thousands of memories, not millions.
 - Snapshot restore downloads the whole shard before trimming to the device's site, so other sites' data touches the disk briefly.
 - Photos are not inspected for faces or name plates; the caption decides the scope. Peers exchange notes but not photos.
+- The default embedding and name models are English. `FIELDMIND_EMBED_MODEL=multilingual` switches to a model that understands Hindi and other languages for search and classification (220 MB; every device in a fleet must use the same model, chosen before the first start); name masking stays English either way.
 
 ## Project layout
 
@@ -262,6 +264,7 @@ fieldmind/
   llm.py        optional on-device language model, with a source check on its answers
   journal.py    SQLite outbox, conflicts, activity, retention
   vault.py      seals private text, activity and photo files with the device key
+  backup.py     encrypted backup and restore of what only the device holds
   cloud.py      Qdrant Server client: compare-and-swap writes, payload patches, snapshots, media
   sync.py       push, pull, merge, conflict resolution, photos
   peers.py      device-to-device exchange when the cloud is out of reach

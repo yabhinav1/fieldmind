@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__, metrics
 from .auth import Auth, Locked
-from .config import DENSE_MODEL, Settings
+from .config import Settings
 from .demo import DEFAULT_NOTES, DEVICE_NOTES, seed_cloud
 from .peers import HEADER as PEER_HEADER
 from .runtime import Device, build
@@ -81,6 +81,10 @@ class ChangePinBody(BaseModel):
 class ResolveBody(BaseModel):
     choice: str
     text: str | None = None
+
+
+class PassphraseBody(BaseModel):
+    passphrase: str
 
 
 class PeerIdsBody(BaseModel):
@@ -237,7 +241,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             "outbox": d.journal.counts(),
             "open_conflicts": len(d.journal.conflicts("open")),
             "shards": {"local": local, "replica": replica},
-            "engine": {"vector_store": "Qdrant Edge (in-process)", "dense_model": DENSE_MODEL,
+            "engine": {"vector_store": "Qdrant Edge (in-process)", "dense_model": d.embedder.model_name,
                        "sparse_model": "BM25 (Qdrant Edge)", "dimensions": d.embedder.dim,
                        "answer_model": settings.ollama_model if d.service.llm.available() else None,
                        "name_model": "BERT NER (ONNX)" if d.names.available else None,
@@ -432,6 +436,36 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         for text in DEVICE_NOTES.get(settings.device_id, DEFAULT_NOTES):
             created += bool(d.service.capture(text).get("created"))
         return {"created": created}
+
+    @app.post("/api/demo/conflict")
+    def stage_conflict():
+        try:
+            return dev().sync.stage_conflict()
+        except RuntimeError as error:
+            raise HTTPException(409, str(error)) from None
+
+    @app.post("/api/backup")
+    def backup(body: PassphraseBody):
+        from . import backup as bundles
+
+        try:
+            data = bundles.export_bundle(dev(), body.passphrase)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        dev().journal.log("security", "An encrypted backup of this device was exported.")
+        name = f"fieldmind-{settings.device_id}-{time.strftime('%Y-%m-%d')}.fmbackup"
+        return Response(data, media_type="application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.post("/api/restore")
+    async def restore(file: Annotated[UploadFile, File()], passphrase: Annotated[str, Form()] = ""):
+        from . import backup as bundles
+
+        data = await file.read()
+        try:
+            return bundles.import_bundle(dev(), data, passphrase)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
 
     @app.post("/api/demo/seed-cloud")
     def seed_cloud_knowledge():

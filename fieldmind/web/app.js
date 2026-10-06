@@ -615,8 +615,8 @@ const GUIDE = [
     text: "Open the Cloud tab. Private notes are absent; names and phone numbers are masked.",
     done: () => seen("cloud") },
   { title: "Make two devices disagree",
-    text: "On this device and another, turn Network off, edit the same shared note differently, then reconnect one after the other. The second shows both versions on its Sync tab.",
-    done: (s) => s.open_conflicts > 0 || s.sync.totals.conflicts > 0 || seen("conflict") },
+    text: "Stage it in one click: another device's edit lands in the cloud while this one edits the same note differently. Or do it by hand with two browsers. Either way the Sync tab shows both versions and nothing is overwritten.",
+    done: (s) => s.open_conflicts > 0 || s.sync.totals.conflicts > 0 || seen("conflict"), action: ["Stage a conflict", "stage-conflict"] },
   { title: "Restore the replica from a cloud snapshot",
     text: "On the Sync tab, choose Rebuild cloud replica. The device downloads one Qdrant Server snapshot. Private notes are untouched.",
     done: () => seen("snapshot") },
@@ -862,6 +862,70 @@ $("seed").addEventListener("click", async (event) => {
   const result = await attempt(() => api("/api/demo/seed", { method: "POST" }), event.target);
   if (result) { toast(`Added ${result.created} sample notes.`); poll(); }
 });
+$("stage-conflict").addEventListener("click", async (event) => {
+  const result = await attempt(() => api("/api/demo/conflict", { method: "POST" }), event.target);
+  if (!result) return;
+  toast(`${result.other_device} and this device now disagree. See Needs a decision.`);
+  seen("conflict", true);
+  closeDrawer();
+  showTab("sync");
+  poll();
+});
+
+function openBackup() {
+  state.guideOpen = false;
+  $("drawer-body").innerHTML = `
+    <div class="drawer-head"><h2>Back up this device</h2><button class="btn ghost small" data-close>Close</button></div>
+    <p class="hint">One file with everything only this device holds: private notes, the unmasked originals of masked notes, photos and what the policy learned. Sealed with a passphrase you choose; the device key stays here.</p>
+    <form id="backup-form" autocomplete="off">
+      <div class="field"><label for="backup-pass">Passphrase, at least 8 characters</label><input id="backup-pass" type="password"></div>
+      <div class="row between"><span class="lock-error" id="backup-error" role="alert"></span><button class="btn primary" type="submit">Download backup</button></div>
+    </form>`;
+  $("drawer").hidden = false;
+  $("backup-pass").focus();
+  $("backup-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const response = await fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passphrase: $("backup-pass").value }) });
+    if (!response.ok) { $("backup-error").textContent = (await response.json().catch(() => ({}))).detail || "Backup failed."; return; }
+    const blob = await response.blob();
+    const name = (response.headers.get("content-disposition") || "").split('filename="')[1]?.replace(/"$/, "") || "fieldmind-backup.fmbackup";
+    const link = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
+    link.click();
+    closeDrawer();
+    toast("Backup downloaded. Keep the passphrase safe.");
+  };
+}
+
+function openRestore() {
+  state.guideOpen = false;
+  $("drawer-body").innerHTML = `
+    <div class="drawer-head"><h2>Restore from a backup</h2><button class="btn ghost small" data-close>Close</button></div>
+    <p class="hint">Brings a backup's notes, photos and learned choices onto this device. Notes already here are left alone; notes that were waiting to sync are queued again. This device keeps its own PIN.</p>
+    <form id="restore-form" autocomplete="off">
+      <div class="field"><label for="restore-file">Backup file (.fmbackup)</label><input id="restore-file" type="file" accept=".fmbackup"></div>
+      <div class="field"><label for="restore-pass">Passphrase</label><input id="restore-pass" type="password"></div>
+      <div class="row between"><span class="lock-error" id="restore-error" role="alert"></span><button class="btn primary" type="submit">Restore</button></div>
+    </form>`;
+  $("drawer").hidden = false;
+  $("restore-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const file = $("restore-file").files[0];
+    if (!file) { $("restore-error").textContent = "Choose a backup file."; return; }
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("passphrase", $("restore-pass").value);
+    const response = await fetch("/api/restore", { method: "POST", body: form });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { $("restore-error").textContent = data.detail || "Restore failed."; return; }
+    closeDrawer();
+    toast(`Restored ${data.memories} memories and ${data.photos} photos from ${data.from_device}.`);
+    poll(); refresh();
+  };
+}
+$("backup").addEventListener("click", () => { closeMenu(); openBackup(); });
+$("restore").addEventListener("click", () => { closeMenu(); openRestore(); });
+
 $("seed-cloud").addEventListener("click", async (event) => {
   const result = await attempt(() => api("/api/demo/seed-cloud", { method: "POST" }), event.target);
   if (result) { toast(`Published ${result.published} manuals to the cloud.`); poll(); }

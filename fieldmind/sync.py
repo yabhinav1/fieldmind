@@ -625,6 +625,55 @@ class SyncEngine:
                          memory_id=memory_id, choice=choice)
         return {"status": "resolved", "choice": choice, "memory": service.get(memory_id)}
 
+    # -- demo -------------------------------------------------------------
+
+    def stage_conflict(self) -> dict:
+        """Make this device disagree with the fleet, in one click.
+
+        A shared note is changed in the cloud as another device would change it
+        (a new revision under that device's name), then changed differently here,
+        and a sync cycle is run. The result is a genuine held conflict, produced
+        by the same code paths as a real one; only the other device's edit is
+        simulated, so the demo needs one browser instead of two.
+        """
+        if not self.check_link():
+            raise RuntimeError("The cloud is not reachable, and a conflict needs a cloud copy to disagree with.")
+        service = self.service
+        other = next((p.get("device") for p in (self.peers.status() if self.peers else []) if p.get("device")), None)
+        other = other or ("edge-b" if self.settings.device_id != "edge-b" else "edge-a")
+
+        candidates = [m for m in service.list(source="local", sync_state="synced", status="active")
+                      if m["scope"] == "shared" and m["kind"] != "photo"]
+        if not candidates:
+            seed = "Pump P-102 bearing vibration high at 7.2 mm/s, recommend replacement"
+            service.capture(seed, allow_duplicate=True, supersede=False)
+            self.run_once("demo")
+            candidates = [m for m in service.list(source="local", sync_state="synced", status="active") if m["scope"] == "shared"]
+            if not candidates:
+                raise RuntimeError("Could not get a shared note into the cloud.")
+        memory = candidates[0]
+        text = memory["text"]
+        if "recommend replacement" in text:
+            theirs_text, mine_text = (text.replace("recommend replacement", "stop the pump immediately"),
+                                      text.replace("recommend replacement", "replace at next shutdown"))
+        else:
+            theirs_text, mine_text = f"{text}; stop and inspect immediately", f"{text}; recheck at the next shift"
+
+        theirs_record = self.cloud.get(memory["id"])
+        if not theirs_record:
+            raise RuntimeError("The note is not in the cloud any more; sync first.")
+        theirs = {**theirs_record["payload"], "text": theirs_text, "rev": theirs_record["payload"].get("rev", 1) + 1,
+                  "device_id": other, "updated_at": time.time()}
+        theirs.pop("write_id", None)
+        dense, sparse = service.embedder.document(theirs_text)
+        if not self.cloud.write(memory["id"], dense, sparse, theirs, theirs_record["payload"].get("rev")):
+            raise RuntimeError("The cloud copy changed while staging; try again.")
+        self.journal.log("demo", f"Simulated an edit by {other} in the cloud: {_clip(theirs_text)}", memory_id=memory["id"])
+        service.edit(memory["id"], text=mine_text)
+        result = self.run_once("demo")
+        return {"memory_id": memory["id"], "other_device": other, "conflicts": result.get("conflicts", 0),
+                "open": len(self.journal.conflicts("open"))}
+
     # -- replica ----------------------------------------------------------
 
     def _restore_replica(self, stats: dict) -> None:

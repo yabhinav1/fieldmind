@@ -17,7 +17,16 @@ except ImportError:
 
 DENSE = "dense"
 SPARSE = "bm25"
-DENSE_MODEL = "BAAI/bge-small-en-v1.5"
+# The embedding model. Both choices produce 384 dimensions, so shards and the
+# cloud collection keep the same layout; every device in a fleet must use the
+# same one. The multilingual model understands notes in Indian and European
+# languages at the cost of a larger download (about 220 MB instead of 130 MB).
+EMBED_MODELS = {
+    "english": "BAAI/bge-small-en-v1.5",
+    "multilingual": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+}
+DENSE_MODEL = EMBED_MODELS.get(os.environ.get("FIELDMIND_EMBED_MODEL", "english"),
+                               os.environ.get("FIELDMIND_EMBED_MODEL", EMBED_MODELS["english"]))
 DENSE_DIM = 384
 
 
