@@ -69,15 +69,44 @@ CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 """
 
 
+# How much history a device keeps. Pruning runs every PRUNE_EVERY inserts, so the
+# tables never grow without bound on a device that runs for months.
+KEEP_EVENTS = 20_000
+KEEP_RUNS = 2_000
+KEEP_FINISHED_OPS = 5_000
+PRUNE_EVERY = 256
+
+
 class Journal:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, keep_events: int = KEEP_EVENTS, keep_runs: int = KEEP_RUNS,
+                 keep_finished_ops: int = KEEP_FINISHED_OPS):
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         self._db.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self._keep = {"events": keep_events, "sync_runs": keep_runs, "outbox": keep_finished_ops}
+        self._writes = 0
         with self._lock:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.executescript(SCHEMA)
+            self.prune()
+
+    def prune(self) -> None:
+        """Drop the oldest activity, sync runs and finished outbox entries beyond the retention caps."""
+        closed = "state NOT IN ('pending', 'conflict', 'failed')"
+        with self._lock:
+            self._db.execute("DELETE FROM events WHERE id <= (SELECT id FROM events ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                             (self._keep["events"],))
+            self._db.execute("DELETE FROM sync_runs WHERE id <= (SELECT id FROM sync_runs ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                             (self._keep["sync_runs"],))
+            self._db.execute(f"DELETE FROM outbox WHERE {closed} AND seq <= "
+                             f"(SELECT seq FROM outbox WHERE {closed} ORDER BY seq DESC LIMIT 1 OFFSET ?)",
+                             (self._keep["outbox"],))
+
+    def _maybe_prune(self) -> None:
+        self._writes += 1
+        if self._writes % PRUNE_EVERY == 0:
+            self.prune()
 
     def close(self) -> None:
         with self._lock:
@@ -110,6 +139,7 @@ class Journal:
     def log(self, type_: str, message: str, level: str = "info", **data: Any) -> None:
         self._run("INSERT INTO events(ts, type, level, message, data) VALUES(?, ?, ?, ?, ?)",
                   (time.time(), type_, level, message, json.dumps(data) if data else None))
+        self._maybe_prune()
 
     def events(self, after: int = 0, limit: int = 200) -> list[dict]:
         rows = self._all("SELECT * FROM events WHERE id > ? ORDER BY id DESC LIMIT ?", (after, limit))
@@ -120,16 +150,17 @@ class Journal:
     def enqueue(self, memory_id: str, op: str, priority: int, base_rev: int, base_payload: dict | None) -> None:
         """Queue a change. Repeated edits of one memory collapse into a single entry
         that keeps the original base, so the cloud sees one change against the
-        version this device last agreed on."""
+        version this device last agreed on. An edit also revives a parked entry."""
         now = time.time()
         with self._lock:
             open_op = self._one(
-                "SELECT * FROM outbox WHERE memory_id = ? AND state IN ('pending', 'conflict') ORDER BY seq DESC LIMIT 1",
+                "SELECT * FROM outbox WHERE memory_id = ? AND state IN ('pending', 'conflict', 'failed') ORDER BY seq DESC LIMIT 1",
                 (memory_id,),
             )
             if open_op:
                 self._run(
-                    "UPDATE outbox SET op = ?, priority = MAX(priority, ?), state = 'pending', last_error = NULL, updated_at = ? WHERE seq = ?",
+                    "UPDATE outbox SET op = ?, priority = MAX(priority, ?), state = 'pending', attempts = 0, "
+                    "last_error = NULL, updated_at = ? WHERE seq = ?",
                     (op, priority, now, open_op["seq"]),
                 )
                 return
@@ -153,28 +184,59 @@ class Journal:
 
     def outbox(self, limit: int = 100) -> list[dict]:
         return self._all(
-            "SELECT * FROM outbox WHERE state IN ('pending', 'conflict') ORDER BY priority DESC, seq ASC LIMIT ?", (limit,))
+            "SELECT * FROM outbox WHERE state IN ('pending', 'conflict', 'failed') ORDER BY priority DESC, seq ASC LIMIT ?",
+            (limit,))
 
     def open_op(self, memory_id: str) -> dict | None:
         return self._one(
             "SELECT * FROM outbox WHERE memory_id = ? AND state IN ('pending', 'conflict') ORDER BY seq DESC LIMIT 1",
             (memory_id,))
 
-    def finish(self, seq: int, state: str = "done", error: str | None = None) -> None:
-        self._run("UPDATE outbox SET state = ?, last_error = ?, attempts = attempts + 1, updated_at = ? WHERE seq = ?",
-                  (state, error, time.time(), seq))
+    def finish(self, seq: int, state: str = "done", error: str | None = None,
+               if_updated_at: float | None = None) -> bool:
+        """Close an outbox entry. With ``if_updated_at``, only if nothing touched the
+        entry since then; a memory edited while its upload was in flight stays queued."""
+        sql = "UPDATE outbox SET state = ?, last_error = ?, attempts = attempts + 1, updated_at = ? WHERE seq = ?"
+        args: tuple = (state, error, time.time(), seq)
+        if if_updated_at is not None:
+            sql += " AND updated_at = ?"
+            args += (if_updated_at,)
+        with self._lock:
+            changed = self._db.execute(sql, args).rowcount
+        self._maybe_prune()
+        return changed > 0
 
-    def fail(self, seq: int, error: str) -> None:
-        self._run("UPDATE outbox SET attempts = attempts + 1, last_error = ?, updated_at = ? WHERE seq = ?",
-                  (error, time.time(), seq))
+    def fail(self, seq: int, error: str) -> int:
+        """Record a failed attempt. Returns how many attempts the entry has had."""
+        with self._lock:
+            self._run("UPDATE outbox SET attempts = attempts + 1, last_error = ?, updated_at = ? WHERE seq = ?",
+                      (error, time.time(), seq))
+            row = self._one("SELECT attempts FROM outbox WHERE seq = ?", (seq,))
+        return int(row["attempts"]) if row else 0
+
+    def defer(self, seq: int, note: str) -> None:
+        """Leave an entry for the next cycle without counting it as a failure (for example a lost compare-and-swap)."""
+        self._run("UPDATE outbox SET last_error = ?, updated_at = ? WHERE seq = ?", (note, time.time(), seq))
 
     def cancel(self, memory_id: str) -> None:
-        self._run("UPDATE outbox SET state = 'cancelled', updated_at = ? WHERE memory_id = ? AND state IN ('pending', 'conflict')",
+        self._run("UPDATE outbox SET state = 'cancelled', updated_at = ? WHERE memory_id = ? AND state IN ('pending', 'conflict', 'failed')",
                   (time.time(), memory_id))
+
+    def failed(self) -> list[dict]:
+        return self._all("SELECT * FROM outbox WHERE state = 'failed' ORDER BY seq ASC")
+
+    def retry_failed(self) -> list[str]:
+        """Put parked entries back in the queue. Returns the memory ids affected."""
+        with self._lock:
+            ids = [row["memory_id"] for row in self.failed()]
+            self._run("UPDATE outbox SET state = 'pending', attempts = 0, last_error = NULL, updated_at = ? WHERE state = 'failed'",
+                      (time.time(),))
+        return ids
 
     def counts(self) -> dict:
         row = self._one(
-            "SELECT SUM(state = 'pending') AS pending, SUM(state = 'conflict') AS conflict, SUM(state = 'done') AS done FROM outbox")
+            "SELECT SUM(state = 'pending') AS pending, SUM(state = 'conflict') AS conflict, "
+            "SUM(state = 'failed') AS failed, SUM(state = 'done') AS done FROM outbox")
         return {k: int(v or 0) for k, v in (row or {}).items()}
 
     # -- conflicts --------------------------------------------------------
@@ -217,6 +279,7 @@ class Journal:
         sets = ", ".join(f"{k} = ?" for k in allowed)
         self._run(f"UPDATE sync_runs SET finished_at = ?, status = ?, error = ?, {sets} WHERE id = ?",
                   (time.time(), status, error, *[int(stats.get(k, 0)) for k in allowed], run_id))
+        self._maybe_prune()
 
     def discard_run(self, run_id: int) -> None:
         self._run("DELETE FROM sync_runs WHERE id = ?", (run_id,))

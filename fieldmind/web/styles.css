@@ -320,6 +320,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 
 .queue-item { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
 .order { font-family: var(--mono); color: var(--muted); font-size: 12px; text-align: center; }
+.queue-item.failed { border-color: var(--bad); margin-top: 8px; }
+.queue-item.failed .order { color: var(--bad); font-weight: 700; }
 
 .conflict-card { border: 1px solid var(--bad); border-radius: 10px; padding: 14px; background: color-mix(in srgb, var(--bad-bg) 40%, var(--surface)); }
 .versions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }

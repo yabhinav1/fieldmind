@@ -51,6 +51,10 @@ def same_content(a: dict, b: dict) -> bool:
     return all(a.get(f) == b.get(f) for f in CONTENT_FIELDS)
 
 
+# What the pull step needs to know about every local memory to compare it with the cloud.
+INDEX_FIELDS = ("rev", "sync_state", "scope", "priority", "text")
+
+
 def _size(payload: dict, sparse: SparseVector | None, dense: bool = True) -> int:
     vectors = (4 * 384 if dense else 0) + (8 * len(sparse.indices) if sparse is not None else 0)
     return len(json.dumps(payload, default=str)) + vectors
@@ -145,7 +149,8 @@ class SyncEngine:
         try:
             if not self.check_link():
                 return {"status": "offline", "pending": self.journal.counts()["pending"]}
-            stats = dict(pushed=0, pulled=0, removed=0, merged=0, conflicts=0, bytes_up=0, bytes_down=0, cloud_points=0)
+            stats = dict(pushed=0, pulled=0, removed=0, merged=0, conflicts=0, failed=0, bytes_up=0, bytes_down=0,
+                         cloud_points=0)
             quiet = trigger == "auto" and not self.journal.pending(1)
             run_id = self.journal.start_run(trigger)
             try:
@@ -159,11 +164,13 @@ class SyncEngine:
                 self.journal.log("sync", f"Sync failed: {error}", level="error")
                 self.cloud.forget_connection()
                 return {"status": "failed", "error": str(error), **stats}
-            moved = stats["pushed"] + stats["pulled"] + stats["removed"] + stats["merged"] + stats["conflicts"]
+            moved = (stats["pushed"] + stats["pulled"] + stats["removed"] + stats["merged"] + stats["conflicts"]
+                     + stats["failed"])
             self.journal.set("last_sync_at", time.time())
             if moved or not quiet:
                 self.journal.finish_run(run_id, "ok", **stats)
-                self.journal.log("sync", _summary(stats), level="good" if not stats["conflicts"] else "warn", **stats)
+                level = "error" if stats["failed"] else "warn" if stats["conflicts"] else "good"
+                self.journal.log("sync", _summary(stats), level=level, **stats)
             else:
                 # A background check that found nothing to do is not worth a history entry.
                 self.journal.discard_run(run_id)
@@ -181,8 +188,38 @@ class SyncEngine:
                 else:
                     self._push_removal(op, stats)
             except Exception as error:
-                self.journal.fail(op["seq"], str(error))
-                raise
+                attempts = self.journal.fail(op["seq"], str(error))
+                if not self.cloud.reachable():
+                    raise  # the link went away; the whole cycle stops here
+                # The cloud is up, so this entry failed for its own reasons. Park it
+                # once it has used up its attempts, and carry on with the rest.
+                if attempts >= self.settings.sync_max_attempts:
+                    self._park(op, str(error), stats)
+
+    def _park(self, op: dict, error: str, stats: dict) -> None:
+        self.journal.finish(op["seq"], "failed", error)
+        stats["failed"] += 1
+        with self.service.lock:
+            record = self.service.local.get(op["memory_id"])
+            if record and record["payload"].get("sync_state") == "pending":
+                record["payload"]["sync_state"] = "failed"
+                self.service.local.set_payload(op["memory_id"], record["payload"])
+        text = (record or {}).get("payload", {}).get("text") or (op["base_payload"] or {}).get("text", "")
+        self.journal.log("sync", f"Set aside after {self.settings.sync_max_attempts} failed attempts "
+                                 f"({_clip(error, 60)}): {_clip(text)}", level="error", memory_id=op["memory_id"])
+
+    def retry_failed(self) -> dict:
+        """Put parked changes back in the queue and sync at once if the link is up."""
+        with self.service.lock:
+            ids = self.journal.retry_failed()
+            for memory_id in ids:
+                record = self.service.local.get(memory_id)
+                if record and record["payload"].get("sync_state") == "failed":
+                    record["payload"]["sync_state"] = "pending"
+                    self.service.local.set_payload(memory_id, record["payload"])
+        if ids:
+            self.journal.log("sync", f"Retrying {len(ids)} change{'s' if len(ids) != 1 else ''} that had been set aside.")
+        return {"retried": len(ids), "sync": self.run_once("retry") if ids else None}
 
     def _push_upsert(self, op: dict, stats: dict) -> None:
         memory_id = op["memory_id"]
@@ -232,14 +269,30 @@ class SyncEngine:
             dense, sparse = record["dense"], record["sparse"]
 
         if not self.cloud.write(memory_id, dense, sparse, mine, expect):
-            self.journal.fail(op["seq"], "The cloud copy changed during upload; retrying.")
+            self.journal.defer(op["seq"], "The cloud copy changed during upload; retrying.")
             return
-        payload["rev"] = mine["rev"]
-        self._mark_synced(memory_id, payload, mine["rev"])
-        self.journal.finish(op["seq"])
-        self.journal.close_conflicts_for(memory_id, "superseded")
         stats["pushed"] += 1
         stats["bytes_up"] += _size(mine, sparse)
+        self.journal.close_conflicts_for(memory_id, "superseded")
+
+        with self.service.lock:
+            current = self.service.local.get(memory_id)
+            untouched = (current is not None and current["payload"].get("rev") == payload.get("rev")
+                         and self.journal.finish(op["seq"], if_updated_at=op["updated_at"]))
+            if untouched:
+                payload["rev"] = mine["rev"]
+                self._mark_synced(memory_id, payload, mine["rev"])
+                return
+            if current is None:
+                return  # deleted while uploading; the deletion is queued behind this entry
+            # Edited while the upload was in flight. The cloud now holds what was sent,
+            # so the edit is rebased onto it and stays queued; nothing is lost.
+            edited = current["payload"]
+            edited.update(base_rev=mine["rev"], rev=max(edited.get("rev", 0), mine["rev"] + 1))
+            self.service.local.set_payload(memory_id, edited)
+            self.journal.rebase(memory_id, mine["rev"], mine)
+            self.journal.log("sync", f"Edited during upload, the new version is queued: {_clip(edited.get('text', ''))}",
+                             memory_id=memory_id)
 
     def _push_removal(self, op: dict, stats: dict) -> None:
         memory_id = op["memory_id"]
@@ -266,7 +319,7 @@ class SyncEngine:
             "updated_at": time.time(),
         }
         if not self.cloud.tombstone(memory_id, tombstone, None if retract else op["base_rev"]):
-            self.journal.fail(op["seq"], "The cloud copy changed during removal; retrying.")
+            self.journal.defer(op["seq"], "The cloud copy changed during removal; retrying.")
             return
         stats["pushed"] += 1
         stats["bytes_up"] += _size(tombstone, None, dense=False)
@@ -275,11 +328,14 @@ class SyncEngine:
         self.journal.log("sync", f"{verb}: {_clip((op['base_payload'] or {}).get('text', ''))}", memory_id=memory_id)
 
     def _after_removal(self, op: dict, local: dict | None, rev: int) -> None:
-        if op["op"] == "retract" and local:
-            payload = local["payload"]
-            payload.update(sync_state="private", base_rev=rev, rev=max(rev, payload.get("rev", 0)), withdrawn=True)
-            self.service.local.set_payload(op["memory_id"], payload)
-        self.journal.finish(op["seq"])
+        with self.service.lock:
+            if op["op"] == "retract" and local:
+                local = self.service.local.get(op["memory_id"])  # fresh copy: it may have been edited meanwhile
+            if op["op"] == "retract" and local:
+                payload = local["payload"]
+                payload.update(sync_state="private", base_rev=rev, rev=max(rev, payload.get("rev", 0)), withdrawn=True)
+                self.service.local.set_payload(op["memory_id"], payload)
+            self.journal.finish(op["seq"])
 
     def _hold_conflict(self, op: dict, payload: dict, mine: dict, theirs: dict, clashes: list[str], stats: dict) -> None:
         self.journal.add_conflict(op["memory_id"], mine, theirs, op["base_payload"], clashes)
@@ -316,8 +372,10 @@ class SyncEngine:
         service, journal = self.service, self.journal
         manifest = self.cloud.manifest(self.settings.site)
         stats["cloud_points"] = sum(1 for v in manifest.values() if v.get("status") != "deleted")
-        local = {r["id"]: r["payload"] for r in service.local.scroll()}
-        replica = {r["id"]: r["payload"].get("rev", 0) for r in service.replica.scroll()}
+        # Only the bookkeeping fields are read for the whole-shard comparison; full
+        # payloads are fetched for the few memories that actually change.
+        local = {r["id"]: r["payload"] for r in service.local.scroll(fields=list(INDEX_FIELDS))}
+        replica = {r["id"]: r["payload"].get("rev", 0) for r in service.replica.scroll(fields=["rev"])}
         wanted: dict[str, str] = {}
 
         for memory_id, entry in manifest.items():
@@ -353,13 +411,18 @@ class SyncEngine:
         service.replica.delete(gone)
         stats["removed"] += len(gone)
 
-        for memory_id, mine in local.items():
+        for memory_id, entry in local.items():
             # The cloud has no trace of something this device already delivered
             # (for example the collection was rebuilt). Send it again.
-            if memory_id not in manifest and mine.get("sync_state") == "synced" and not journal.open_op(memory_id):
-                mine.update(sync_state="pending", base_rev=0)
-                service.local.set_payload(memory_id, mine)
-                journal.enqueue(memory_id, "upsert", mine.get("priority", 1), 0, None)
+            if memory_id not in manifest and entry.get("sync_state") == "synced" and not journal.open_op(memory_id):
+                with service.lock:
+                    record = service.local.get(memory_id)
+                    if not record or record["payload"].get("sync_state") != "synced":
+                        continue
+                    mine = record["payload"]
+                    mine.update(sync_state="pending", base_rev=0)
+                    service.local.set_payload(memory_id, mine)
+                    journal.enqueue(memory_id, "upsert", mine.get("priority", 1), 0, None)
                 journal.log("sync", f"Cloud copy missing, queued again: {_clip(mine.get('text', ''))}",
                             level="warn", memory_id=memory_id)
 
@@ -374,13 +437,18 @@ class SyncEngine:
                     payload = {**cloud_payload, "sync_state": "replica", "base_rev": cloud_payload.get("rev", 0)}
                     service.replica.upsert(record["id"], record["dense"], record["sparse"], payload)
                     continue
-                payload = local[record["id"]]
-                self._apply_cloud_content(payload, cloud_payload)
-                payload.update(rev=cloud_payload.get("rev", 0), base_rev=cloud_payload.get("rev", 0),
-                               updated_at=cloud_payload.get("updated_at"), device_id=cloud_payload.get("device_id"),
-                               sync_state="synced")
-                dense, sparse = service.embedder.document(payload["text"])
-                service.local.upsert(record["id"], dense, sparse, payload)
+                with service.lock:
+                    current = service.local.get(record["id"])
+                    # Edited here since the index was taken: the queued change handles it.
+                    if not current or journal.open_op(record["id"]):
+                        continue
+                    payload = current["payload"]
+                    self._apply_cloud_content(payload, cloud_payload)
+                    payload.update(rev=cloud_payload.get("rev", 0), base_rev=cloud_payload.get("rev", 0),
+                                   updated_at=cloud_payload.get("updated_at"), device_id=cloud_payload.get("device_id"),
+                                   sync_state="synced")
+                    dense, sparse = service.embedder.document(payload["text"])
+                    service.local.upsert(record["id"], dense, sparse, payload)
                 journal.log("sync", f"Updated by {cloud_payload.get('device_id')}: {_clip(payload['text'])}",
                             memory_id=record["id"])
 
@@ -493,6 +561,8 @@ def _summary(stats: dict) -> str:
         parts.append(f"removed {stats['removed']}")
     if stats["conflicts"]:
         parts.append(f"{stats['conflicts']} need a decision")
+    if stats.get("failed"):
+        parts.append(f"{stats['failed']} set aside after repeated failures")
     if not parts:
         return "Sync complete, already up to date."
     return "Sync complete: " + ", ".join(parts) + "."

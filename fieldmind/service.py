@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+import threading
 import time
 import uuid
 from typing import Any
@@ -73,6 +74,9 @@ class MemoryService:
         self.journal = journal
         self.policy = policy
         self.llm = LocalModel(settings.ollama_url, settings.ollama_model)
+        # Every change to the local shard and the outbox happens under this lock, so
+        # a capture from the dashboard and a sync cycle never interleave half-way.
+        self.lock = threading.RLock()
 
     # -- lookup -----------------------------------------------------------
 
@@ -121,6 +125,7 @@ class MemoryService:
             "pending": count(self.local, sync_state="pending"),
             "synced": count(self.local, sync_state="synced"),
             "conflict": count(self.local, sync_state="conflict"),
+            "failed": count(self.local, sync_state="failed"),
             "superseded": count(self.local, status="superseded") + count(self.replica, status="superseded"),
         }
 
@@ -169,6 +174,11 @@ class MemoryService:
         text = text.strip()
         if not text:
             raise ValueError("A memory needs some text.")
+        with self.lock:
+            return self._capture(text, kind, asset, tags, scope, link, allow_duplicate)
+
+    def _capture(self, text: str, kind: str, asset: str | None, tags: list[str] | None, scope: str | None,
+                 link: bool, allow_duplicate: bool) -> dict:
         decision = self.policy.decide(text, override=scope)
         asset = asset or find_asset(text)
         related = self.related(text, asset) if link else []
@@ -240,27 +250,29 @@ class MemoryService:
             changes["asset"] = asset or None
         if tags is not None:
             changes["tags"] = sorted(set(tags))
-        result = self._mutate(memory_id, changes, scope=scope, note="Edited on this device.")
-        self.local.flush()
+        with self.lock:
+            result = self._mutate(memory_id, changes, scope=scope, note="Edited on this device.")
+            self.local.flush()
         return result
 
     def delete(self, memory_id: str) -> None:
-        record = self.find(memory_id)
-        if not record:
-            raise NotFound(memory_id)
-        payload = record["payload"]
-        open_op = self.journal.open_op(memory_id)
-        in_cloud = (payload.get("base_rev", 0) > 0 and not payload.get("withdrawn")) or record["shard"] == "replica"
-        if in_cloud:
-            base = open_op["base_payload"] if open_op else cloud_view(payload)
-            base_rev = open_op["base_rev"] if open_op else payload.get("rev", 0)
-            self.journal.enqueue(memory_id, "delete", 1, base_rev, base)
-        else:
-            self.journal.cancel(memory_id)
-        self.journal.close_conflicts_for(memory_id, "deleted")
-        self.local.delete([memory_id])
-        self.replica.delete([memory_id])
-        self.local.flush()
+        with self.lock:
+            record = self.find(memory_id)
+            if not record:
+                raise NotFound(memory_id)
+            payload = record["payload"]
+            open_op = self.journal.open_op(memory_id)
+            in_cloud = (payload.get("base_rev", 0) > 0 and not payload.get("withdrawn")) or record["shard"] == "replica"
+            if in_cloud:
+                base = open_op["base_payload"] if open_op else cloud_view(payload)
+                base_rev = open_op["base_rev"] if open_op else payload.get("rev", 0)
+                self.journal.enqueue(memory_id, "delete", 1, base_rev, base)
+            else:
+                self.journal.cancel(memory_id)
+            self.journal.close_conflicts_for(memory_id, "deleted")
+            self.local.delete([memory_id])
+            self.replica.delete([memory_id])
+            self.local.flush()
         self.journal.log("delete", f"Deleted: {_clip(payload.get('text', ''))}", memory_id=memory_id,
                          queued=in_cloud)
 

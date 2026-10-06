@@ -283,6 +283,10 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
     def sync_run():
         return dev().sync.run_once("manual")
 
+    @app.post("/api/sync/retry")
+    def sync_retry():
+        return dev().sync.retry_failed()
+
     @app.post("/api/conflicts/{conflict_id}/resolve")
     def resolve(conflict_id: int, body: ResolveBody):
         try:

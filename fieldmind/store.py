@@ -152,13 +152,15 @@ class Shard:
         with self._lock:
             return bool(self._shard.retrieve([memory_id], False, False))
 
-    def scroll(self, flt: Filter | None = None, with_vector: bool = False) -> list[dict]:
+    def scroll(self, flt: Filter | None = None, with_vector: bool = False,
+               fields: list[str] | None = None) -> list[dict]:
+        """Every record, optionally with only the named payload fields (much cheaper for a whole-shard index)."""
         out: list[dict] = []
         offset = None
         with self._lock:
             while True:
                 records, offset = self._shard.scroll(
-                    ScrollRequest(offset=offset, limit=256, filter=flt, with_payload=True, with_vector=with_vector)
+                    ScrollRequest(offset=offset, limit=256, filter=flt, with_payload=fields or True, with_vector=with_vector)
                 )
                 out.extend(self._record(r, with_vector) for r in records)
                 if offset is None:

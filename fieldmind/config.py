@@ -45,6 +45,9 @@ class Settings:
     # back, high-priority memories go first.
     sync_interval: float = field(default_factory=lambda: float(_env("SYNC_INTERVAL", "4")))
     sync_batch: int = field(default_factory=lambda: int(_env("SYNC_BATCH", "25")))
+    # A queued change that keeps failing for its own reasons (not because the link
+    # is down) is parked after this many attempts so the rest of the queue drains.
+    sync_max_attempts: int = field(default_factory=lambda: int(_env("SYNC_MAX_ATTEMPTS", "5")))
     # When a device is this many memories behind, it restores the replica from one
     # cloud snapshot instead of fetching memories one by one.
     snapshot_min_points: int = field(default_factory=lambda: int(_env("SNAPSHOT_MIN_POINTS", "200")))

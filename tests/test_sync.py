@@ -221,6 +221,58 @@ def test_device_recovers_when_cloud_is_rebuilt(fleet):
     assert cloud_texts(a) == [FAULT]
 
 
+def test_a_change_that_keeps_failing_is_set_aside_and_the_queue_drains(fleet):
+    a = fleet("edge-a")
+    a.settings.sync_max_attempts = 3
+    bad = a.service.capture("Valve V-17 leaking hydraulic fluid near the flange, gasket looks worn")["memory"]["id"]
+    good = a.service.capture(FAULT)["memory"]["id"]
+    real_write = a.cloud.write
+
+    def flaky_write(memory_id, *args, **kwargs):
+        if memory_id == bad:
+            raise RuntimeError("payload rejected")
+        return real_write(memory_id, *args, **kwargs)
+
+    a.cloud.write = flaky_write
+    assert a.sync.run_once()["pushed"] == 1, "the healthy change behind the failing one still goes"
+    assert a.service.get(good)["sync_state"] == "synced"
+    assert a.journal.open_op(bad)["attempts"] == 1
+
+    a.sync.run_once()
+    result = a.sync.run_once()
+    assert result["failed"] == 1 and a.journal.counts() == {**a.journal.counts(), "pending": 0, "failed": 1}
+    assert a.service.get(bad)["sync_state"] == "failed"
+    assert a.sync.run_once()["pushed"] == 0, "a parked change is not retried on its own"
+
+    a.cloud.write = real_write
+    assert a.sync.retry_failed()["sync"]["pushed"] == 1
+    assert a.service.get(bad)["sync_state"] == "synced" and a.journal.counts()["failed"] == 0
+
+
+def test_an_edit_made_during_the_upload_is_not_lost(fleet):
+    a, b = fleet("edge-a"), fleet("edge-b")
+    memory_id = a.service.capture(FAULT)["memory"]["id"]
+    real_write = a.cloud.write
+    newer = "Pump P-102 bearing vibration high at 7.9 mm/s, stop the pump"
+
+    def write_while_editing(*args, **kwargs):
+        stored = real_write(*args, **kwargs)
+        a.cloud.write = real_write
+        a.service.edit(memory_id, text=newer)  # the technician types while the upload is in flight
+        return stored
+
+    a.cloud.write = write_while_editing
+    assert a.sync.run_once()["pushed"] == 1
+    mine = a.service.get(memory_id)
+    assert mine["text"] == newer and mine["sync_state"] == "pending", "the edit stays queued"
+    assert mine["base_rev"] == 1 and mine["rev"] > 1
+
+    assert a.sync.run_once()["pushed"] == 1
+    assert a.service.get(memory_id)["sync_state"] == "synced"
+    b.sync.run_once()
+    assert b.service.get(memory_id)["text"] == newer
+
+
 def test_cloud_knowledge_is_searchable_on_the_device(fleet, embedder):
     a = fleet("edge-a")
     seed_cloud(a.cloud, embedder)

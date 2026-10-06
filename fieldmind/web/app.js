@@ -24,6 +24,7 @@ const SYNC = {
   pending: "Waiting to sync",
   synced: "Synced",
   conflict: "Needs a decision",
+  failed: "Could not sync",
 };
 const RELATION = {
   updates: "Updates an earlier note",
@@ -596,15 +597,25 @@ async function loadSync() {
   if (!data) return;
   const OPS = { upsert: "Send", delete: "Delete", retract: "Withdraw" };
 
-  $("outbox").innerHTML = data.outbox.filter((o) => o.state === "pending").length
-    ? data.outbox.filter((o) => o.state === "pending").map((o, i) => `
-      <div class="queue-item">
-        <span class="order">${i + 1}</span>
+  const pending = data.outbox.filter((o) => o.state === "pending");
+  const failed = data.outbox.filter((o) => o.state === "failed");
+  const queueItem = (o, i) => `
+      <div class="queue-item ${o.state === "failed" ? "failed" : ""}">
+        <span class="order">${o.state === "failed" ? "!" : i + 1}</span>
         <div><div>${esc(o.text || "(removed note)")}</div>
           <div class="when">${OPS[o.op]} · queued ${ago(o.created_at)}${o.last_error ? ` · ${esc(o.last_error)}` : ""}</div></div>
         <span class="badge ${o.priority === 2 ? "urgent" : ""}">${PRIORITY[o.priority]}</span>
-      </div>`).join("")
-    : `<div class="empty-state">Nothing waiting. This device and the cloud agree.</div>`;
+      </div>`;
+  $("outbox").innerHTML = (pending.length ? pending.map(queueItem).join("")
+    : `<div class="empty-state">Nothing waiting. This device and the cloud agree.</div>`)
+    + (failed.length ? `<div class="notice warn" style="margin-top:10px">${failed.length} change${failed.length === 1 ? "" : "s"}
+        set aside after repeated failures. <button class="link-btn" id="retry-failed">Try again</button></div>${failed.map(queueItem).join("")}` : "");
+  if (failed.length) {
+    $("retry-failed").onclick = async (event) => {
+      const result = await attempt(() => api("/api/sync/retry", { method: "POST" }), event.target);
+      if (result) { toast(`Retrying ${result.retried}.`); poll(); loadSync(); }
+    };
+  }
 
   const t = data.totals;
   const link = data.link;
