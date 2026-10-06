@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -142,7 +143,9 @@ class Cloud:
 
         With ``expect_rev`` set, an existing point is only replaced while it is still
         at that revision, so two devices cannot silently overwrite each other.
-        Returns whether this write is the one now stored.
+        Returns whether this write is the one now stored: every write carries a
+        fresh ``write_id``, so the read-back cannot mistake another device's write
+        for this one even if both carry the same revision and timestamp.
         """
         guard = None
         if expect_rev is not None:
@@ -150,11 +153,11 @@ class Cloud:
         vector: dict[str, Any] = {DENSE: dense}
         if sparse is not None and list(sparse.indices):
             vector[SPARSE] = m.SparseVector(indices=list(sparse.indices), values=list(sparse.values))
-        point = m.PointStruct(id=memory_id, vector=vector, payload=payload)
+        write_id = secrets.token_hex(8)
+        point = m.PointStruct(id=memory_id, vector=vector, payload={**payload, "write_id": write_id})
         self.client.upsert(self.collection, [point], wait=True, update_filter=guard)
         stored = self.get(memory_id)
-        return bool(stored) and all(
-            stored["payload"].get(k) == payload.get(k) for k in ("rev", "device_id", "updated_at"))
+        return bool(stored) and stored["payload"].get("write_id") == write_id
 
     def tombstone(self, memory_id: str, payload: dict, expect_rev: int | None) -> bool:
         return self.write(memory_id, TOMBSTONE_VECTOR, None, payload, expect_rev)

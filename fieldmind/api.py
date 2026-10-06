@@ -7,11 +7,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__
+from . import __version__, metrics
 from .auth import Auth, Locked
 from .config import DENSE_MODEL, Settings
 from .demo import DEFAULT_NOTES, DEVICE_NOTES, seed_cloud
@@ -175,6 +175,21 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         auth().logout_all(except_token=request.cookies.get(cookie))
         dev().journal.log("security", "The device PIN was changed.")
         return {"changed": True}
+
+    # -- probes (no PIN, no note text) --------------------------------------
+
+    @app.get("/healthz")
+    def healthz():
+        d = state.get("device")
+        if d is None or d.closed:
+            return JSONResponse({"status": "starting"}, status_code=503)
+        return {"status": "ok", "device": settings.device_id, "version": __version__}
+
+    @app.get("/metrics")
+    def prometheus(request: Request):
+        if settings.metrics_token and request.headers.get("authorization") != f"Bearer {settings.metrics_token}":
+            raise HTTPException(401, "A metrics token is required.")
+        return PlainTextResponse(metrics.render(dev()), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     # -- status -----------------------------------------------------------
 

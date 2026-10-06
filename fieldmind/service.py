@@ -7,6 +7,7 @@ import re
 import threading
 import time
 import uuid
+from collections import deque
 from typing import Any
 
 from .config import DENSE, SPARSE, Settings
@@ -77,6 +78,11 @@ class MemoryService:
         # Every change to the local shard and the outbox happens under this lock, so
         # a capture from the dashboard and a sync cycle never interleave half-way.
         self.lock = threading.RLock()
+        # Recent search and answer times, for /metrics.
+        self.search_ms: deque[float] = deque(maxlen=500)
+        self.answer_ms: deque[float] = deque(maxlen=200)
+        self.searches = 0
+        self.answers = 0
 
     # -- lookup -----------------------------------------------------------
 
@@ -390,6 +396,8 @@ class MemoryService:
                 results.append({**self._present(entry["hit"]), "score": round(score, 4),
                                 "matched": entry["matched"], "strength": entry["strength"]})
         results.sort(key=lambda r: (r["score"], r["updated_at"]), reverse=True)
+        self.search_ms.append((time.perf_counter() - t0) * 1000)
+        self.searches += 1
 
         return {
             "query": query,
@@ -430,6 +438,8 @@ class MemoryService:
                 self.journal.log("answer", "Discarded a generated answer that did not match its sources.", level="warn")
         if text is None:
             text = self._compose(points)
+        self.answer_ms.append((time.perf_counter() - started) * 1000)
+        self.answers += 1
         return {
             "question": question,
             "answer": text,

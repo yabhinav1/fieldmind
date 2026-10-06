@@ -55,6 +55,9 @@ class Settings:
     # Pre-set device PIN. Without it, the first person to open the dashboard on the
     # device itself chooses one.
     pin: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_PIN"))
+    # /metrics holds only counters and timings, no note text. Set a token to require
+    # "Authorization: Bearer <token>" on it anyway.
+    metrics_token: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_METRICS_TOKEN"))
 
     # On-device language model for phrasing answers (scripts/llm.ps1 runs it).
     # Leave the model empty to always compose answers from the notes themselves.

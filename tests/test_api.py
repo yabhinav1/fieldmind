@@ -105,6 +105,24 @@ def test_pin_is_not_stored_in_plain_text(fleet):
     assert "2468" not in raw and "hash" in raw
 
 
+def test_probes_need_no_pin_and_carry_no_note_text(fleet):
+    device = fleet("edge-a")
+    device.service.capture("Technician Ravi Kumar reported chest pain during night shift, sent to clinic")
+    device.service.search("chest pain")
+    with TestClient(create_app(device=device), client=ELSEWHERE) as client:
+        assert client.get("/healthz").json()["status"] == "ok"
+        body = client.get("/metrics").text
+        assert 'fieldmind_memories_private{device="edge-a",site="plant-1"} 1' in body
+        assert "fieldmind_search_ms" in body and "fieldmind_outbox_pending" in body
+        assert "Ravi" not in body and "chest" not in body
+
+    device = fleet("edge-b")
+    device.settings.metrics_token = "s3cret"
+    with TestClient(create_app(device=device), client=ELSEWHERE) as client:
+        assert client.get("/metrics").status_code == 401
+        assert client.get("/metrics", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+
+
 def test_capture_and_search_over_http(app):
     with TestClient(app, client=ON_DEVICE) as client:
         client.post("/api/auth/setup", json={"pin": "2468"})

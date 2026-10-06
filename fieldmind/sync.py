@@ -68,6 +68,7 @@ class SyncEngine:
         self.settings = service.settings
         self._run_lock = threading.Lock()
         self._stop = threading.Event()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._reachable = False
         self._checked_at = 0.0
@@ -85,19 +86,29 @@ class SyncEngine:
         return bool(self.journal.get("auto_sync", True))
 
     def set_forced_offline(self, value: bool) -> None:
+        """Flip the Network switch. Never probes the cloud on the caller's thread:
+        going offline needs no probe, and coming back wakes the background loop."""
         self.journal.set("forced_offline", bool(value))
         self.journal.log("link", "Network disabled on this device." if value else "Network enabled on this device.",
                          level="warn" if value else "info")
-        self.check_link()
+        if value:
+            self._note_link(False)
+        elif self._thread and self._thread.is_alive():
+            self._wake.set()
+        else:
+            self.check_link()
 
     def set_auto_sync(self, value: bool) -> None:
         self.journal.set("auto_sync", bool(value))
         self.journal.log("sync", f"Automatic sync turned {'on' if value else 'off'}.")
 
     def check_link(self) -> bool:
-        self._reachable = False if self.forced_offline else self.cloud.reachable()
+        """Probe the cloud (a short HTTP round trip) and record the outcome."""
+        return self._note_link(False if self.forced_offline else self.cloud.reachable())
+
+    def _note_link(self, online: bool) -> bool:
+        self._reachable = online
         self._checked_at = time.time()
-        online = self._reachable
         if online != self._was_online:
             if online:
                 waited = f" after {_duration(time.time() - self._offline_since)} offline" if self._offline_since else ""
@@ -129,6 +140,7 @@ class SyncEngine:
 
     def stop(self) -> None:
         self._stop.set()
+        self._wake.set()
         if self._thread:
             self._thread.join(timeout=5)
 
@@ -139,7 +151,8 @@ class SyncEngine:
                     self.run_once("auto")
             except Exception as error:  # the loop must survive any single failure
                 self.journal.log("sync", f"Background sync error: {error}", level="error")
-            self._stop.wait(self.settings.sync_interval)
+            self._wake.wait(self.settings.sync_interval)
+            self._wake.clear()
 
     # -- one sync cycle ---------------------------------------------------
 
