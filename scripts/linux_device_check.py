@@ -1,7 +1,7 @@
 """Checks the Linux container device (edge-c) through a real network cut.
 
     docker compose --profile linux-device up -d --build
-    python scripts/linux_device_check.py [PIN]
+    python scripts/linux_device_check.py PIN     (the PIN set on edge-c's dashboard)
 
 Unlike the Network switch in the dashboard, this disconnects the container from the
 network it uses to reach the cloud. The device has to notice on its own.
@@ -14,7 +14,7 @@ import time
 import httpx
 
 BASE = "http://127.0.0.1:8003"
-PIN = sys.argv[1] if len(sys.argv) > 1 else "2468"
+PIN = sys.argv[1] if len(sys.argv) > 1 else sys.exit("Pass edge-c's PIN. Set it once at http://127.0.0.1:8003 (the setup code is in: docker compose logs edge-c).")
 NETWORK, CONTAINER = "fieldmind_uplink", "fieldmind-edge-c"
 failures = []
 

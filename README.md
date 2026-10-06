@@ -16,7 +16,7 @@ Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 |---|---|
 | 2 minutes | Read the [deck (PDF)](docs/FieldMind-Compilers.pdf) and the walkthrough above. |
 | 5 minutes | Read [how each line of the problem statement is met](docs/requirements.md), with the code and the test that proves it. |
-| 10 minutes | Run it: `docker compose --profile demo up --build`, open http://localhost:8001 and http://localhost:8002 (PIN `2468`), and click **Demo guide** in the top right. Or [host it online for free](docs/host-for-free.md). |
+| 10 minutes | Run it: `docker compose --profile demo up --build`, open http://localhost:8001 and http://localhost:8002, choose a PIN for each (the setup code it asks for is in the compose output), and click **Demo guide** in the top right. Or [host it online for free](docs/host-for-free.md). |
 | A question | [Pitch notes](docs/pitch.md) answer the ones we expect: why two shards, how snapshots are used, what stops devices overwriting each other. |
 
 ## What it does
@@ -127,7 +127,7 @@ This starts Qdrant Server and two edge devices in Linux containers:
 - edge-a at http://localhost:8001
 - edge-b at http://localhost:8002
 
-The PIN is `2468`. The first start downloads the embedding, name and reranking models (about 260 MB). Click **Demo guide** in the top right of either dashboard.
+The first start downloads the embedding, name and reranking models (about 260 MB). Each device has no PIN yet: its lock screen asks for a one-time **setup code**, printed in the compose output (`edge-a ... enter setup code A1B2C3 on the lock screen`), and the PIN you choose. From then on it is just the PIN. To skip that step, run with `FIELDMIND_PIN=2468 docker compose ...`. Click **Demo guide** in the top right of either dashboard.
 
 In this mode answers are composed from the notes; the language model runs in the from-source setup below. The two containers are also configured as peers, so cutting both uplinks still lets them exchange notes.
 
@@ -144,10 +144,10 @@ Needs Python 3.10 or newer; Docker for the cloud (without it the devices still r
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt     # Windows: py -m venv .venv ; .venv\Scripts\pip install -r requirements.txt
-.venv/bin/python -m fieldmind start --pin 2468                          # or ./scripts/start.sh, or .\scripts\start.ps1 -Pin 2468
+.venv/bin/python -m fieldmind start                                     # or ./scripts/start.sh, or .\scripts\start.ps1
 ```
 
-This starts Qdrant Server in Docker when it is local and present, then both devices as their own processes, and opens the dashboards. Without `--pin` each device asks you to choose one the first time.
+This starts Qdrant Server in Docker when it is local and present, then both devices as their own processes, and opens the dashboards. Each device asks you to choose a PIN the first time (on this computer no setup code is needed). `--pin 2468` pre-sets one instead.
 
 | Command | What it does |
 |---|---|
@@ -184,7 +184,7 @@ Or put the same values in a `.env` file (see `.env.example`). Sync and snapshot 
 ### A real network cut, checked automatically
 
 ```powershell
-docker compose --profile linux-device up -d --build      # edge-c at http://127.0.0.1:8003, PIN 2468
+docker compose --profile linux-device up -d --build      # edge-c at http://127.0.0.1:8003
 python scripts\linux_device_check.py
 ```
 
@@ -210,7 +210,7 @@ Open both dashboards side by side and unlock them. The **Demo guide** button lis
 10. **Evolving memory.** On edge-b, record `Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal`. Ask edge-a `what is the condition of pump P-102`. It answers with the new state.
 11. **Snapshot restore.** On the *Sync* tab, click *Rebuild cloud replica*. The activity log reports a restore from a Qdrant Server snapshot. Private notes are untouched.
 
-`python scripts/scenario.py 2468` runs the same story against the two running devices and checks all 30 steps. [docs/demo-video.md](docs/demo-video.md) is a shot-by-shot script for recording it.
+`python scripts/scenario.py <PIN>` runs the same story against the two running devices (after you have set their PIN once) and checks all 30 steps. [docs/demo-video.md](docs/demo-video.md) is a shot-by-shot script for recording it.
 
 ## Tests
 

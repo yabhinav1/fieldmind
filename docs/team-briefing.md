@@ -96,11 +96,11 @@ cd fieldmind
 docker compose --profile demo up --build
 ```
 
-Then open http://localhost:8001 (edge-a) and http://localhost:8002 (edge-b). PIN is `2468`. First start downloads about 235 MB of models. In this mode answers are composed from the notes (no language model in the containers); everything else is identical. Click **Demo guide** in the top right of the dashboard: it lists 8 steps and ticks them off as you do them.
+Then open http://localhost:8001 (edge-a) and http://localhost:8002 (edge-b). Each device asks you to choose a PIN the first time (setup code in the compose output). First start downloads about 260 MB of models. In this mode answers are composed from the notes (no language model in the containers); everything else is identical. Click **Demo guide** in the top right of the dashboard: it lists 8 steps and ticks them off as you do them.
 
 **Windows with the language model** (how it runs on Abhinav's laptop): see "Run it" in the README. Before a demo there, run `python -m fieldmind doctor`; every line should say `ok`.
 
-**Scripted proof:** `python scripts/scenario.py 2468` walks both devices through the whole story and checks 30 steps. Good to run on screen if a judge asks "does it really work?".
+**Scripted proof:** `python scripts/scenario.py <PIN>` walks both devices through the whole story and checks 30 steps. Good to run on screen if a judge asks "does it really work?".
 
 ---
 

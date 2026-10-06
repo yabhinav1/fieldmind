@@ -6,7 +6,9 @@ Start the cloud and both devices first (see README), then:
 
 Set FIELDMIND_A and FIELDMIND_B to test devices on other addresses.
 
-The PIN defaults to 2468. A device that has no PIN yet is given this one.
+Pass the devices' PIN as the first argument. A device that has no PIN yet is given it,
+which works from the device's own machine; a device elsewhere must have its PIN set once
+from the dashboard first (it asks for the setup code printed in its console).
 """
 
 import os
@@ -28,6 +30,9 @@ def session(base):
         client = httpx.Client(base_url=base, timeout=120)
         state = client.get("/api/auth/state").json()
         response = client.post("/api/auth/login" if state["configured"] else "/api/auth/setup", json={"pin": PIN})
+        if response.status_code == 403 and not state["configured"]:
+            sys.exit(f"{base} has no PIN yet and is not on this machine. Open its dashboard once, enter the setup code "
+                     "from its console and choose a PIN, then run this script with that PIN.")
         if response.status_code != 200:
             sys.exit(f"Could not unlock {base}: {response.json().get('detail')}. Pass the PIN as an argument.")
         sessions[base] = client

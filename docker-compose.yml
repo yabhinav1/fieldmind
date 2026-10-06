@@ -5,7 +5,8 @@
 #
 #   docker compose --profile demo up --build
 #       The whole demo on any OS: the cloud plus two edge devices.
-#       Open http://localhost:8001 and http://localhost:8002, PIN 2468.
+#       Open http://localhost:8001 and http://localhost:8002. Each device asks you to
+#       choose a PIN the first time; the setup code it wants is printed in this output.
 #
 #   docker compose --profile linux-device up -d --build
 #       One extra device (edge-c, http://localhost:8003) for the real network-cut check.
@@ -26,7 +27,9 @@ x-device: &device
 x-device-env: &device-env
   FIELDMIND_CLOUD_URL: http://qdrant:6333
   FIELDMIND_COLLECTION: ${FIELDMIND_COLLECTION:-fleet_memory}
-  FIELDMIND_PIN: ${FIELDMIND_PIN:-2468}
+  # Leave empty so the first person to open a device chooses its PIN (a one-time
+  # setup code is printed in the compose output). Set it to skip that step.
+  FIELDMIND_PIN: ${FIELDMIND_PIN:-}
   # Devices on the "console" network find each other when the uplink is cut.
   FIELDMIND_PEER_TOKEN: ${FIELDMIND_PEER_TOKEN:-fleet-demo}
   # Containers have no language model; answers are composed from the notes.
@@ -54,7 +57,7 @@ services:
       FIELDMIND_AUTHOR: technician-a
       FIELDMIND_PEERS: http://edge-b:7860
     ports:
-      - "${EDGE_A_PORT:-8001}:7860"
+      - "127.0.0.1:${EDGE_A_PORT:-8001}:7860"
     volumes:
       - ./models:/models
       - edge_a_data:/data
@@ -78,7 +81,7 @@ services:
       FIELDMIND_AUTHOR: technician-b
       FIELDMIND_PEERS: http://edge-a:7860
     ports:
-      - "${EDGE_B_PORT:-8002}:7860"
+      - "127.0.0.1:${EDGE_B_PORT:-8002}:7860"
     volumes:
       - ./models:/models
       - edge_b_data:/data
@@ -97,7 +100,7 @@ services:
       FIELDMIND_DEVICE: edge-c
       FIELDMIND_AUTHOR: technician-c
     ports:
-      - "8003:7860"
+      - "127.0.0.1:8003:7860"
     volumes:
       - ./models:/models
       - edge_c_data:/data

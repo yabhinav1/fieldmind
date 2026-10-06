@@ -105,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     from .api import create_app
 
     print(f"FieldMind device {settings.device_id} -> http://{settings.host}:{settings.port}")
+    if settings.pin:
+        print(f"  Dashboard PIN: {settings.pin} (preset by FIELDMIND_PIN)")
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level="warning")
     return 0
 

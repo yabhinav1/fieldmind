@@ -24,7 +24,7 @@ Do this twice, once for `edge-a` and once for `edge-b`.
    | Name | Value |
    |---|---|
    | `FIELDMIND_DEVICE` | `edge-a` (or `edge-b` for the second Space) |
-   | `FIELDMIND_PIN` | `2468` (or any PIN you like) |
+   | `FIELDMIND_PIN` | any PIN you like, or leave it out to choose one on first open (the setup code is in the Space's logs) |
    | `FIELDMIND_CLOUD_URL` | your Qdrant Cloud URL |
    | `FIELDMIND_CLOUD_API_KEY` | your Qdrant Cloud API key (add this one as a **secret**) |
    | `FIELDMIND_OLLAMA_MODEL` | leave empty |

@@ -113,7 +113,7 @@ def start(settings: Settings, only: str | None = None, lan: bool = False, open_b
     for name, port in started:
         url = f"http://127.0.0.1:{port}"
         if _ready(port):
-            print(f"{name} ready at {url}")
+            print(f"{name} ready at {url}" + (f"  (PIN {pin})" if pin else ""))
             code = _setup_code(logs / f"{name}.log")
             if code:
                 print(f"  {name} has no PIN yet. On this computer, just choose one on the lock screen. "
