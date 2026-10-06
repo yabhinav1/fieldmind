@@ -76,6 +76,25 @@ def test_bare_names_are_masked_without_a_title(policy, text, hidden):
     assert "[person removed]" in decision.shared_text
 
 
+@pytest.mark.parametrize("text, signal, hidden", [
+    ("Forklift KA 01 AB 1234 hydraulic hose burst near bay 3", "vehicle", "KA 01 AB 1234"),
+    ("Contractor with badge #A1234 left the MCC-2 panel open", "badge", "A1234"),
+    ("Spare parts delivered to Flat 12, 3rd Cross, Indiranagar for the V-17 job", "address", "Flat 12, 3rd Cross"),
+    ("Emp id 48213 reported the boiler B-2 pressure at 6.1 bar", "badge", "48213"),
+])
+def test_vehicles_badges_and_addresses_are_masked(policy, text, signal, hidden):
+    decision = policy.decide(text)
+    assert signal in {s["type"] for s in decision.signals}, decision.signals
+    assert decision.scope == "redacted" and hidden not in decision.shared_text
+
+
+def test_readings_and_asset_tags_are_not_mistaken_for_identifiers(policy):
+    for text in ("Boiler B-2 pressure 6.1 bar, safety valve lifts at 7.5 bar",
+                 "Motor M-9 winding temperature 96C, trips at 155 C",
+                 "Conveyor C-3 belt speed 1250 rpm after the gearbox change"):
+        assert not policy.decide(text).signals, text
+
+
 def test_equipment_and_vendors_are_not_mistaken_for_people(policy):
     for text in ("Pump P-102 bearing vibration high at 7.2 mm/s, recommend replacement",
                  "Siemens drive fault on Conveyor C-3, reset from the MCC-2 panel",

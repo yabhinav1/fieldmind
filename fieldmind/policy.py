@@ -91,7 +91,15 @@ DETECTORS: list[tuple[str, str, re.Pattern]] = [
     ("credential", "secret",
      re.compile(r"(?i)\b(?:password|passwd|pwd|passcode|api[ _-]?key|secret|token|pin)\b\s*(?:is|=|:)?\s*\S+")),
     ("email", "contact", re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")),
+    # Aadhaar (12 digits in groups of 4) and PAN (AAAAA9999A).
     ("id_number", "identity", re.compile(r"\b\d{4}[ -]?\d{4}[ -]?\d{4}\b|\b[A-Z]{5}\d{4}[A-Z]\b")),
+    # Indian vehicle registration: state, district, series, four digits.
+    ("vehicle", "identity", re.compile(r"\b[A-Z]{2}[ -]?\d{1,2}[ -]?[A-Z]{1,3}[ -]?\d{4}\b")),
+    # Staff, badge and employee numbers, as written on a note: "emp id 48213", "badge #A1234".
+    ("badge", "identity",
+     re.compile(r"(?i)\b(?:emp(?:loyee)?|badge|staff|worker)\s*(?:id|no|number|#)?\.?\s*[:#-]?\s*[A-Z]{0,3}\d{3,8}\b")),
+    # A street address starting at a house, flat or plot number, up to the next clause.
+    ("address", "contact", re.compile(r"(?i)\b(?:flat|house|plot|door|h\.?\s?no)\s*(?:no\.?)?\s*#?\s*\d+[A-Za-z]?\b[^.,;\n]{0,50}")),
     ("phone", "contact", re.compile(r"(?<![\w.])(?:\+?\d{1,3}[ -]?)?(?:\d[ -]?){9,11}\d(?![\w.])")),
     ("person", "identity",
      re.compile(r"\b(?:Mr|Mrs|Ms|Dr|Technician|Operator|Engineer|Supervisor|Worker)\.?\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)")),

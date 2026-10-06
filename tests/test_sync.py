@@ -95,6 +95,16 @@ def test_follow_up_replaces_earlier_belief(fleet):
     assert [h["id"] for h in a.service.history(second["id"])] == [second["id"], first]
 
 
+def test_the_person_can_keep_the_earlier_note_current(fleet):
+    a = fleet("edge-a")
+    first = a.service.capture(FAULT)["memory"]["id"]
+    preview = a.service.preview("Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal")
+    assert preview["related"][0]["relation"] == "resolves", "the preview shows what would be replaced"
+    second = a.service.capture("Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal", supersede=False)["memory"]
+    assert second["supersedes"] is None
+    assert a.service.get(first)["status"] == "active"
+
+
 def test_unrelated_issue_on_same_asset_is_kept(fleet):
     a = fleet("edge-a")
     first = a.service.capture(FAULT)["memory"]["id"]

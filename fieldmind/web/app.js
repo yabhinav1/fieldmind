@@ -318,9 +318,13 @@ async function loadPreview() {
   const d = data.decision;
   const masked = d.shared_text
     ? `<div class="masked"><b>What the cloud receives</b>${esc(d.shared_text)}</div>` : "";
+  const replaces = data.related.find((r) => r.relation === "updates" || r.relation === "resolves");
+  const keepSupersede = state.supersede !== false;
   const related = data.related.length ? `<div class="related">${data.related.map((r) => `
       <div class="related-item"><span class="badge ${r.relation === "duplicate" ? "pending" : ""}">${esc(RELATION[r.relation])}</span>
-      ${esc(r.text)} <span class="when">${Math.round(r.similarity * 100)}% similar</span></div>`).join("")}</div>` : "";
+      ${esc(r.text)} <span class="when">${Math.round(r.similarity * 100)}% similar</span></div>`).join("")}
+      ${replaces ? `<label class="check" style="margin-top:6px"><input type="checkbox" id="supersede-choice" ${keepSupersede ? "checked" : ""}>
+        Mark the earlier note as replaced by this one</label>` : ""}</div>` : "";
   box.className = `preview ${d.scope}`;
   box.innerHTML = `
     <div class="preview-head">
@@ -334,6 +338,8 @@ async function loadPreview() {
     <ul>${d.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
     ${masked}${related}
     <div class="when" style="margin-top:8px">Decided on this device in ${data.took_ms} ms</div>`;
+  const choice = $("supersede-choice");
+  if (choice) choice.onchange = () => { state.supersede = choice.checked; };
 }
 
 async function saveNote(allowDuplicate = false) {
@@ -341,7 +347,8 @@ async function saveNote(allowDuplicate = false) {
   if (!text) return;
   const result = await attempt(() => api("/api/memories", {
     method: "POST",
-    body: { text, scope: $("scope-override").value || null, allow_duplicate: allowDuplicate },
+    body: { text, scope: $("scope-override").value || null, allow_duplicate: allowDuplicate,
+      supersede: state.supersede !== false },
   }), $("save-note"));
   if (!result) return;
   const box = $("capture-result");
@@ -358,6 +365,7 @@ async function saveNote(allowDuplicate = false) {
   setTimeout(() => { box.innerHTML = ""; }, 5000);
   $("note").value = "";
   $("scope-override").value = "";
+  state.supersede = true;
   schedulePreview();
   poll();
 }

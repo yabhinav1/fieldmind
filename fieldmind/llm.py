@@ -31,33 +31,74 @@ CHECK_EVERY = 15.0
 
 CITATION = re.compile(r"\[(\d+)\]")
 NUMBER = re.compile(r"\d+(?:\.\d+)?")
+ASSET = re.compile(r"\b[A-Z]{1,4}-\d{1,4}[A-Z]?\b")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+WORD = re.compile(r"[a-z]+")
+
+# Words that say whether something is in order or not. A cited sentence may not
+# claim one when its sources only say the other.
+POSITIVE = {"normal", "acceptable", "fine", "ok", "okay", "healthy", "safe", "resolved", "repaired", "fixed"}
+NEGATIVE = {"abnormal", "unacceptable", "unsafe", "overheating", "leaking", "fault", "faulty", "failing", "failed",
+            "danger", "dangerous", "stop", "stopped", "high", "exceeds", "exceeded", "worn", "stuck", "tripped"}
+NEGATIONS = {"not", "no", "never", "isn", "aren", "wasn", "longer"}
 
 
 def _numbers(text: str) -> set[str]:
     return set(NUMBER.findall(text))
 
 
-def grounded(answer: str, notes: list[str], question: str = "") -> bool:
-    """Whether every number in the answer can be found where the answer says it came from.
+def _assets(text: str) -> set[str]:
+    return set(ASSET.findall(text))
 
-    A sentence that cites notes may only use numbers from those notes (or from the
-    question). A sentence with no citation may use numbers from any retrieved note.
-    This catches the typical small-model slip: taking a limit from a manual and
-    reporting it as a reading on a machine.
+
+def _polarity(text: str) -> set[str]:
+    """``{"positive"}``, ``{"negative"}``, both, or neither. A negation just before a
+    word flips it, so "not acceptable" counts as negative."""
+    words = WORD.findall(text.lower())
+    out: set[str] = set()
+    for index, word in enumerate(words):
+        if word in POSITIVE or word in NEGATIVE:
+            negated = any(w in NEGATIONS for w in words[max(0, index - 3):index])
+            positive = (word in POSITIVE) != negated
+            out.add("positive" if positive else "negative")
+    return out
+
+
+def grounded(answer: str, notes: list[str], question: str = "") -> bool:
+    """Whether what the answer says can be found where the answer says it came from.
+
+    Three checks run on every sentence. Numbers and asset tags in a sentence that
+    cites notes must appear in those notes (or in the question); a sentence with
+    no citation may draw on any retrieved note. And a cited sentence may not call
+    something fine when its sources only call it faulty, or the other way round.
+    Together they catch the typical small-model slips: a limit from a manual
+    reported as a reading, a fault attributed to the wrong machine, and a stale
+    or inverted verdict.
     """
-    allowed_anywhere = _numbers(question)
-    all_notes = set().union(*(_numbers(note) for note in notes)) if notes else set()
+    all_numbers = set().union(*(_numbers(note) for note in notes)) if notes else set()
+    all_assets = set().union(*(_assets(note) for note in notes)) if notes else set()
     for sentence in SENTENCE_END.split(answer):
         cited = [int(n) for n in CITATION.findall(sentence)]
         if any(n < 1 or n > len(notes) for n in cited):
             return False
-        used = _numbers(CITATION.sub(" ", sentence))
-        if not used:
-            continue
-        sources = set().union(*(_numbers(notes[n - 1]) for n in cited)) if cited else all_notes
-        if not used <= sources | allowed_anywhere:
+        plain = CITATION.sub(" ", sentence)
+        sources = [notes[n - 1] for n in cited]
+
+        numbers = _numbers(plain)
+        allowed = set().union(*(_numbers(s) for s in sources)) if cited else all_numbers
+        if numbers and not numbers <= allowed | _numbers(question):
             return False
+
+        assets = _assets(plain)
+        allowed = set().union(*(_assets(s) for s in sources)) if cited else all_assets
+        if assets and not assets <= allowed | _assets(question):
+            return False
+
+        if cited:
+            claimed = _polarity(plain)
+            supported = set().union(*(_polarity(s) for s in sources))
+            if claimed and supported and not claimed & supported:
+                return False
     return True
 
 

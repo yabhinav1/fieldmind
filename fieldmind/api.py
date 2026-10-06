@@ -28,6 +28,7 @@ class CaptureBody(BaseModel):
     tags: list[str] = Field(default_factory=list)
     scope: str | None = None
     allow_duplicate: bool = False
+    supersede: bool = True
 
 
 class PreviewBody(BaseModel):
@@ -236,7 +237,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
     def capture(body: CaptureBody):
         try:
             return dev().service.capture(body.text, body.kind, body.asset, body.tags, body.scope,
-                                         allow_duplicate=body.allow_duplicate)
+                                         allow_duplicate=body.allow_duplicate, supersede=body.supersede)
         except ValueError as error:
             raise HTTPException(400, str(error)) from None
 

@@ -30,6 +30,26 @@ def test_uncited_sentence_may_use_any_retrieved_number():
     assert grounded("The device has no record of it.", [GUIDE, PUMP])
 
 
+def test_rejects_a_fault_pinned_on_the_wrong_machine():
+    assert grounded("Pump P-102 needs its bearing replaced [1].", [PUMP, MOTOR])
+    assert not grounded("Motor M-9 needs its bearing replaced [1].", [PUMP, MOTOR])
+    assert not grounded("Pump P-103 needs its bearing replaced [1].", [PUMP, MOTOR])
+    # An asset named in the question may be mentioned even if the note does not repeat it.
+    assert grounded("K-4 has no recorded faults [1].", ["No open faults on the compressor."], "what about K-4")
+
+
+def test_rejects_a_verdict_its_source_contradicts():
+    assert not grounded("Pump P-102 is running fine [1].", [PUMP])
+    assert not grounded("The vibration is acceptable [1].", [PUMP])
+    assert grounded("The vibration is not acceptable [1].", [PUMP])
+    assert grounded("No, 7.2 mm/s is unacceptable [2]. Above 7.1 mm/s the machine should be stopped [1].", [GUIDE, PUMP])
+    fixed = "Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal"
+    assert grounded("P-102 is back to normal at 1.8 mm/s [1].", [fixed])
+    assert not grounded("P-102 vibration is still high [1].", [fixed])
+    # A manual that lists both outcomes supports either reading.
+    assert grounded("That level is acceptable [1].", [GUIDE], "is 2 mm/s acceptable")
+
+
 def test_model_is_skipped_cleanly_when_not_running():
     model = LocalModel("http://127.0.0.1:9", "llama3.2:3b")  # nothing listens on port 9
     assert model.available() is False

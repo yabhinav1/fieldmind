@@ -176,15 +176,18 @@ class MemoryService:
 
     def capture(self, text: str, kind: str = "observation", asset: str | None = None,
                 tags: list[str] | None = None, scope: str | None = None,
-                link: bool = True, allow_duplicate: bool = False) -> dict:
+                link: bool = True, allow_duplicate: bool = False, supersede: bool = True) -> dict:
+        """Save a note. ``supersede=False`` keeps an earlier note about the same issue
+        current even when this one reads as a follow-up; the preview shows what would
+        be replaced so the person can decide."""
         text = text.strip()
         if not text:
             raise ValueError("A memory needs some text.")
         with self.lock:
-            return self._capture(text, kind, asset, tags, scope, link, allow_duplicate)
+            return self._capture(text, kind, asset, tags, scope, link, allow_duplicate, supersede)
 
     def _capture(self, text: str, kind: str, asset: str | None, tags: list[str] | None, scope: str | None,
-                 link: bool, allow_duplicate: bool) -> dict:
+                 link: bool, allow_duplicate: bool, supersede: bool) -> dict:
         decision = self.policy.decide(text, override=scope)
         asset = asset or find_asset(text)
         related = self.related(text, asset) if link else []
@@ -223,7 +226,7 @@ class MemoryService:
         # A follow-up replaces what the device believed before, as long as doing so
         # would not reveal a private note to the fleet.
         target = next((r for r in related if r["relation"] in ("updates", "resolves")), None)
-        if target and (decision.scope != PRIVATE or target["scope"] == PRIVATE):
+        if supersede and target and (decision.scope != PRIVATE or target["scope"] == PRIVATE):
             payload["supersedes"] = target["id"]
             payload["relation"] = target["relation"]
 
