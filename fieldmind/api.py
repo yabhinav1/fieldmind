@@ -260,14 +260,14 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
 
     @app.post("/api/photos")
     async def add_photo(file: Annotated[UploadFile, File()], caption: Annotated[str, Form()] = "",
-                        scope: Annotated[str | None, Form()] = None):
+                        scope: Annotated[str | None, Form()] = None, supersede: Annotated[bool, Form()] = True):
         if not dev().service.photos:
             raise HTTPException(409, "Photos are turned off on this device (FIELDMIND_PHOTOS=1 turns them on).")
         data = await file.read()
         if len(data) > 25 * 1024 * 1024:
             raise HTTPException(413, "That photo is larger than 25 MB.")
         try:
-            return dev().service.attach_photo(data, caption, scope or None)
+            return dev().service.attach_photo(data, caption, scope or None, supersede=supersede)
         except ValueError as error:
             raise HTTPException(400, str(error)) from None
         except Exception as error:  # a file that is not an image, or the model not loaded

@@ -416,6 +416,7 @@ td.num, th.num { text-align: right; }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 138, 128, .45); } 50% { box-shadow: 0 0 0 6px rgba(255, 138, 128, 0); } }
 
 /* Photos */
+.photo-preview[hidden] { display: none; }
 .photo-preview { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
 .photo-preview img { max-height: 140px; max-width: 200px; border-radius: 8px; object-fit: cover; }
 .thumbs { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }

@@ -28,14 +28,17 @@ Do this twice, once for `edge-a` and once for `edge-b`.
    | `FIELDMIND_CLOUD_URL` | your Qdrant Cloud URL |
    | `FIELDMIND_CLOUD_API_KEY` | your Qdrant Cloud API key (add this one as a **secret**) |
    | `FIELDMIND_OLLAMA_MODEL` | leave empty |
+   | `FIELDMIND_PEERS` | the other Space's URL, for example `https://<you>-fieldmind-b.hf.space` (optional: lets the two devices exchange notes directly if the cloud is down) |
+   | `FIELDMIND_PEER_TOKEN` | any shared string, the same on both Spaces (add as a **secret**) |
 
-5. The Space builds (about 5 minutes) and starts. The first start downloads the models (about 235 MB, another minute). Then open the Space's URL, enter the PIN, click **Demo guide**.
+5. The Space builds (about 5 minutes) and starts. The first start downloads the models (about 260 MB, another minute). Then open the Space's URL, enter the PIN, click **Demo guide**.
 
 The Dockerfile already serves on port 7860, which is what Spaces expect, so no other configuration is needed.
 
 ## Notes
 
 - Free Spaces go to sleep after about 48 hours without visitors and wake up when someone opens the link (a minute). Open both links a few minutes before a demo.
-- Free Space storage is wiped on restart. Notes are kept in Qdrant Cloud, so a restarted device gets the shared ones back on its first sync; private notes on a restarted free Space are lost. Fine for a demo, not for real use.
+- Free Space storage is wiped on restart. Notes are kept in Qdrant Cloud, so a restarted device gets the shared ones back on its first sync; private notes on a restarted free Space are lost, and so is the device key that seals them. Fine for a demo, not for real use.
+- Leave `FIELDMIND_PHOTOS` unset on a free Space: the CLIP models add 590 MB to the first start and a third 215 MB shard.
 - The two Spaces are two devices on the same site, exactly like the laptop demo: the conflict step, masked sharing and snapshot restore all work between them.
 - To stop paying nothing for nothing: delete the Spaces and the cluster when you are done.

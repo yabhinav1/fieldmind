@@ -359,6 +359,7 @@ async function savePhoto(text) {
   const form = new FormData();
   form.append("file", state.photo, state.photo.name || "photo.jpg");
   form.append("caption", text);
+  form.append("supersede", state.supersede !== false ? "true" : "false");
   if ($("scope-override").value) form.append("scope", $("scope-override").value);
   const response = await fetch("/api/photos", { method: "POST", body: form });
   const data = await response.json().catch(() => ({}));

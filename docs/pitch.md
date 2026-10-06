@@ -42,7 +42,22 @@ Three signals, all local: pattern detectors for credentials and contact details,
 No. For a masked note the vectors we upload are computed from the masked text.
 
 **Can the language model make things up?**
-A 3B model can, and in testing it did: it took an alarm limit from a manual and reported it as a reading on a motor. So every generated answer goes through a source check before it is shown. Each number in a sentence must appear in the note that sentence cites. If not, the answer is thrown away and the device quotes the notes instead. The sources are always listed under the answer.
+A 3B model can, and in testing it did: it took an alarm limit from a manual and reported it as a reading on a motor. So every generated answer goes through a source check before it is shown. Each number and each asset tag in a sentence must appear in the note that sentence cites, and a sentence may not call something fine when its sources only call it faulty, or the reverse. If any check fails, the answer is thrown away and the device quotes the notes instead. The sources are always listed under the answer.
+
+**How good is retrieval beyond the fused score?**
+Fusion of cosine and BM25 is fast and good at recall. For answers, and for search when asked, a 23 MB cross-encoder (MiniLM, ONNX) reads the question together with each of the twenty best candidates and its verdict is blended in. It costs a few tens of milliseconds on a CPU and stays on the device.
+
+**Does the policy ever learn?**
+Yes, from the person. When a technician overrides a decision, the device keeps the note's vector and the chosen scope, never the text, and a later note at least 88% similar follows that choice. The policy also reports when a note reads as two kinds at once, say a hazard that is also about someone's injury, and flags it for a look. Credentials can never be learned into sharing.
+
+**What if the cloud is gone for days?**
+Devices on the same network still learn from each other. Each device offers the notes it may share, masked exactly as the cloud would get them, plus the cloud knowledge it already holds, behind one fleet token. A device without a cloud link pulls from its peers into its replica shard. Nothing from a peer touches the local shard, and once the cloud is back its copy takes over.
+
+**What about photos?**
+A photo is captured with a caption. The caption is an ordinary memory and decides the scope; the photo follows it. A third Qdrant Edge shard holds one CLIP vector per photo, so "the corroded flange" finds the photo as well as the caption. EXIF data (position, time, camera) is stripped, only thumbnails leave the device, and they travel in a second collection with their vector. It is optional because the model pair is 590 MB.
+
+**What happens to a change that keeps failing?**
+If the cloud is up but one queued change fails for its own reasons, it is set aside after five attempts so everything behind it, including urgent safety notes, still goes. The Sync tab shows it with a Retry button. A change that fails because the link dropped is simply retried next cycle.
 
 **Is the language model required?**
 No. Without it, answers are composed from the retrieved notes. With it, a 3B model on the device phrases the answer and cites its sources. Either way there is no cloud call.
@@ -51,11 +66,16 @@ No. Without it, answers are composed from the retrieved notes. With it, a 3B mod
 Devices notice that memories they already delivered are missing and upload them again.
 
 **What does it cost on the device?**
-About 430 MB of disk per device for the two shards, 235 MB for the embedding and name models, and 2 GB more if the language model is installed. Search and policy run on the CPU.
+About 430 MB of disk per device for the two shards, 260 MB for the embedding, name and reranking models, and 2 GB more if the language model is installed. Photos add a third shard (215 MB) and 590 MB of models. Search and policy run on the CPU.
+
+**Is anything protected on disk?**
+The text of private notes, the unmasked original of masked notes, every activity-log line and every photo file are sealed with a key created on first start in the device's data directory (mode 0600, or wherever FIELDMIND_KEY_FILE points). Copying the shard and journal files off the device without the key yields no private text. Vectors are not sealed; they are needed for search and cannot be turned back into text.
 
 ## What is honestly not done
 
-- Notes are not encrypted at rest.
-- The PIN session runs over plain HTTP.
-- Name masking is English only and will miss some names.
-- Pull sync lists every id in the device's site each cycle, which suits tens of thousands of memories, not millions.
+- Sealing protects against the data files being copied without the key file; someone who can read the key file too can read everything. Use full-disk encryption for that.
+- The PIN session runs over plain HTTP. Put TLS in front before exposing a device beyond the demo network.
+- Name masking is English only and will miss some names. Addresses are caught only when they start with a house, flat or plot number.
+- Dictation uses the browser's speech recognition; where the browser cannot run it on the device, audio goes to the browser vendor's service and needs internet.
+- Pull sync compares a slim index of every memory in the device's site each cycle, which suits tens of thousands of memories, not millions.
+- Photos are not inspected for faces or name plates; the caption decides the scope. Peers exchange notes but not photos.

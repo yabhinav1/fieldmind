@@ -268,7 +268,7 @@ class MemoryService:
 
     # -- photos -----------------------------------------------------------
 
-    def attach_photo(self, data: bytes, caption: str, scope: str | None = None) -> dict:
+    def attach_photo(self, data: bytes, caption: str, scope: str | None = None, supersede: bool = True) -> dict:
         """Save a photo with what it shows. The caption is captured as a memory and
         decides the scope; the photo is attached and follows it. A caption that
         repeats an existing note attaches the photo to that note instead."""
@@ -277,7 +277,7 @@ class MemoryService:
         if not caption.strip():
             raise ValueError("Say what the photo shows.")
         with self.lock:
-            result = self.capture(caption, kind="photo", scope=scope)
+            result = self.capture(caption, kind="photo", scope=scope, supersede=supersede)
             memory = result["memory"] if result["created"] else result["duplicate_of"]
             photo = self.photos.add(memory, data)
             if photo["sync_state"] == "pending":
