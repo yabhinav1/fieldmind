@@ -183,6 +183,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---- buttons and inputs ---- */
 
+a.btn { text-decoration: none; display: inline-block; }
 .btn {
   border: 1px solid var(--line-strong);
   background: var(--surface);

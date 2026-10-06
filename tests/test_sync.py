@@ -426,3 +426,13 @@ def test_captures_and_sync_cycles_can_run_at_the_same_time(fleet):
     assert a.service.stats()["synced"] == len(notes)
     b.sync.run_once()
     assert b.service.stats()["replica"] == len(notes)
+
+
+def test_a_newer_note_outranks_an_equal_older_one(fleet):
+    a = fleet("edge-a")
+    old = a.service.capture(FAULT)["memory"]["id"]
+    new = a.service.capture(FAULT, allow_duplicate=True, supersede=False)["memory"]["id"]
+    record = a.service.local.get(old)
+    record["payload"]["updated_at"] -= 40 * 86400  # the first was written six weeks ago
+    a.service.local.set_payload(old, record["payload"])
+    assert [r["id"] for r in a.service.search("P-102 bearing vibration")["results"][:2]] == [new, old]

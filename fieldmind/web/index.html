@@ -129,7 +129,10 @@
       <div class="card">
         <div class="row wrap between">
           <div class="chips" id="memory-filters"></div>
-          <input id="memory-text" type="search" placeholder="Filter by text" autocomplete="off">
+          <div class="row" style="margin:0">
+            <input id="memory-text" type="search" placeholder="Filter by text" autocomplete="off">
+            <a class="btn" id="report" href="/api/report?hours=24" title="Download the last 24 hours as a Markdown shift report. Private notes are left out.">Shift report</a>
+          </div>
         </div>
         <div id="memory-list" class="list"></div>
       </div>

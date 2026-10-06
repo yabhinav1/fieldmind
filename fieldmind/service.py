@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import re
 import threading
 import time
@@ -41,6 +42,10 @@ RERANK_DEPTH = 20
 RERANK_WEIGHT = 0.6
 # A photo that looks like what the question describes adds to its memory's score.
 IMAGE_WEIGHT = 0.4
+# Memory evolves: when two notes match equally well, the more recent one should
+# come first. A note gets up to this much extra, fading over RECENCY_DAYS.
+RECENCY_WEIGHT = 0.08
+RECENCY_DAYS = 30.0
 
 # Reference material is published centrally. A field note can relate to it but
 # never replaces it.
@@ -56,6 +61,11 @@ CLOUD_FIELDS = (
 CONTENT_FIELDS = ("text", "kind", "asset", "tags", "status", "supersedes", "superseded_by", "relation")
 
 SCOPE_WORDS = {PRIVATE: "private", SHARED: "shared", REDACTED: "shared with details masked"}
+CATEGORY_TITLE = {
+    "safety_hazard": "Safety hazards", "equipment_fault": "Equipment faults", "procedure_fix": "Work done and procedures",
+    "routine_reading": "Routine readings", "personal_health": "Personal and health", "people_hr": "People matters",
+    "scratch_note": "Personal notes", "other": "Other",
+}
 
 RESOLVED_WORDS = re.compile(
     r"(?i)\b(fixed|repaired|replaced|resolved|cleaned|cleared|restored|normal|ok|okay|working|healthy|no leak|back to)\b")
@@ -475,6 +485,8 @@ class MemoryService:
             score = sum(weights[s] * v for s, v in entry["strength"].items())
             if entry["hit"]["payload"].get("status") == "superseded":
                 score *= 0.5
+            age_days = max(0.0, time.time() - (entry["hit"]["payload"].get("updated_at") or 0)) / 86400
+            score *= 1 + RECENCY_WEIGHT * math.exp(-age_days / RECENCY_DAYS)
             if score >= MIN_SCORE:
                 results.append({**self._present(entry["hit"]), "score": round(score, 4),
                                 "matched": entry["matched"], "strength": entry["strength"]})
@@ -567,6 +579,52 @@ class MemoryService:
                 line += f' {verb} an earlier note: "{earlier}"'
             lines.append(line)
         return "\n".join(lines)
+
+    # -- report -----------------------------------------------------------
+
+    def report(self, hours: float = 24, include_private: bool = False) -> str:
+        """A shift report in Markdown: what this device recorded in the last ``hours``,
+        grouped by kind, hazards first. Private notes are left out unless asked for;
+        masked notes appear as the fleet sees them."""
+        since = time.time() - hours * 3600
+        notes = [m for m in self.list(source="local") if m["updated_at"] >= since and m["status"] == "active"]
+        if not include_private:
+            notes = [m for m in notes if m["scope"] != PRIVATE]
+        groups: dict[str, list[dict]] = {}
+        for note in notes:
+            groups.setdefault(note.get("category") or "other", []).append(note)
+        order = ["safety_hazard", "equipment_fault", "procedure_fix", "routine_reading", "personal_health", "people_hr",
+                 "scratch_note", "other"]
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime())
+        lines = [f"# Shift report: {self.settings.device_id} ({self.settings.site})", "",
+                 f"Last {hours:g} hours, written {when} by {self.settings.author}. "
+                 f"{len(notes)} note{'s' if len(notes) != 1 else ''}"
+                 + ("" if include_private else "; private notes are not included") + ".", ""]
+        for key in order:
+            items = groups.get(key)
+            if not items:
+                continue
+            lines.append(f"## {CATEGORY_TITLE.get(key, key.replace('_', ' ').title())}")
+            lines.append("")
+            for m in sorted(items, key=lambda m: (-(m.get("priority") or 0), m["updated_at"])):
+                text = m["shared_text"] if (m["scope"] == REDACTED and not include_private and m.get("shared_text")) else m["text"]
+                asset = f"**{m['asset']}** · " if m.get("asset") else ""
+                flags = []
+                if m.get("priority") == 2:
+                    flags.append("urgent")
+                if m.get("photos"):
+                    flags.append(f"{len(m['photos'])} photo{'s' if len(m['photos']) != 1 else ''}")
+                if m.get("sync_state") == "pending":
+                    flags.append("not yet synced")
+                if m.get("relation") in ("updates", "resolves") and m.get("supersedes"):
+                    flags.append("resolves an earlier note" if m["relation"] == "resolves" else "updates an earlier note")
+                suffix = f" _({', '.join(flags)})_" if flags else ""
+                lines.append(f"- {asset}{text}{suffix}  ")
+                lines.append(f"  {time.strftime('%H:%M', time.localtime(m['updated_at']))}, {m.get('author') or m.get('device_id')}")
+            lines.append("")
+        if not notes:
+            lines.append("_Nothing recorded in this period._")
+        return "\n".join(lines).rstrip() + "\n"
 
     # -- helpers ----------------------------------------------------------
 

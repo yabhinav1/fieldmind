@@ -307,6 +307,16 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         items = dev().service.list(scope, sync_state, kind, asset, source, status, text)
         return {"items": items, "total": len(items)}
 
+    @app.get("/api/report")
+    def report(hours: float = 24, include_private: bool = False, download: bool = True):
+        """The shift report as Markdown. With ``download`` the browser saves it as a file."""
+        text = dev().service.report(hours, include_private)
+        headers = {}
+        if download:
+            name = f"fieldmind-{settings.device_id}-{time.strftime('%Y-%m-%d')}.md"
+            headers["Content-Disposition"] = f'attachment; filename="{name}"'
+        return PlainTextResponse(text, media_type="text/markdown; charset=utf-8", headers=headers)
+
     @app.get("/api/memories/{memory_id}")
     def memory(memory_id: str):
         try:
