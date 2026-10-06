@@ -232,21 +232,21 @@ function renderStatus(s) {
 
   const waiting = outbox.pending || 0;
   const stats = [
-    ["Written on this device", memory.local, ""],
-    ["Received from cloud", memory.replica, ""],
-    ["Kept private", memory.private, ""],
-    ["Waiting to sync", waiting, waiting ? "attention" : ""],
-    ["Need a decision", s.open_conflicts, s.open_conflicts ? "alert" : ""],
-    ["Replaced by newer notes", memory.superseded, ""],
+    ["Memories on this device", memory.local + memory.replica, "", `${memory.local} written here · ${memory.replica} from the cloud`],
+    ["Kept private", memory.private, "", "never leave the device"],
+    ["Waiting to sync", waiting, waiting ? "attention" : "", link.online ? "sending now" : "sent when the link returns"],
+    ["Need a decision", s.open_conflicts, s.open_conflicts ? "alert" : "", "conflicts between devices"],
   ];
-  $("stats").innerHTML = stats.map(([label, value, cls]) => `
-    <div class="stat ${cls}"><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`).join("");
+  $("stats").innerHTML = stats.map(([label, value, cls, sub]) => `
+    <div class="stat ${cls}"><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${esc(sub)}</div></div>`).join("");
+  $("start-here").hidden = memory.local + memory.replica > 0;
+  document.querySelector(".samples").hidden = !$("start-here").hidden;
 
   const attention = waiting + s.open_conflicts;
   $("tab-sync-count").textContent = attention ? String(attention) : "";
 
   const disk = s.shards.local.disk_bytes + s.shards.replica.disk_bytes;
-  $("engine").innerHTML = `<h2>On this device</h2>
+  $("engine").innerHTML = `<p class="hint">Everything below runs inside this device's process. Nothing here needs a network.</p>
     <dl class="kv">
       <dt>Vector store</dt><dd>${esc(s.engine.vector_store)}</dd>
       <dt>Meaning model</dt><dd>${esc(s.engine.dense_model.split("/").pop())} · ${s.engine.dimensions}d</dd>
@@ -437,22 +437,13 @@ async function runSearch(withAnswer = true) {
   const t = found.timing_ms;
   const total = found.searched.local + found.searched.replica;
   $("search-meta").innerHTML =
-    `<b>${t.search} ms</b> search · ${t.embed} ms to read the question${found.reranked ? ` · ${t.rerank} ms to rerank` : ""} · ${total} memories · <b>${found.network_calls} network calls</b>`;
+    `Searched ${total} memories on this device in <b>${t.total} ms</b> · <b>${found.network_calls} network calls</b>${found.reranked ? " · question and notes read together" : ""}`;
 
+  const SIGNAL = { semantic: "Meaning", keyword: "Keywords", rerank: "Read together", image: "Photo" };
   $("results").innerHTML = found.results.length ? found.results.map((r) => {
-    const parts = [];
-    if (r.matched.semantic !== undefined) {
-      parts.push(`<span class="signal">Meaning <span class="bar"><span style="width:${Math.round(r.strength.semantic * 100)}%"></span></span> ${r.matched.semantic.toFixed(2)}</span>`);
-    }
-    if (r.matched.keyword !== undefined) {
-      parts.push(`<span class="signal">Keywords <span class="bar"><span style="width:${Math.round(r.strength.keyword * 100)}%"></span></span> ${r.matched.keyword.toFixed(2)}</span>`);
-    }
-    if (r.matched.rerank !== undefined) {
-      parts.push(`<span class="signal">Read together <span class="bar"><span style="width:${Math.round(r.strength.rerank * 100)}%"></span></span> ${r.matched.rerank.toFixed(2)}</span>`);
-    }
-    if (r.matched.image !== undefined) {
-      parts.push(`<span class="signal">Photo <span class="bar"><span style="width:${Math.round(r.strength.image * 100)}%"></span></span> ${r.matched.image.toFixed(2)}</span>`);
-    }
+    const parts = Object.keys(SIGNAL).filter((k) => r.strength[k] !== undefined).map((k) =>
+      `<span class="signal" title="${SIGNAL[k]} match: ${r.matched[k].toFixed(2)}">${SIGNAL[k]}
+        <span class="bar"><span style="width:${Math.round(r.strength[k] * 100)}%"></span></span></span>`);
     return memoryItem(r, `<div class="signals">${parts.join("")}</div>`);
   }).join("") : `<div class="empty-state">Nothing in device memory matches that.</div>`;
 }
@@ -812,6 +803,8 @@ document.addEventListener("click", (event) => {
   if (open) { state.guideOpen = false; return openMemory(open.dataset.open); }
   const guided = event.target.closest("[data-guide]");
   if (guided) return $(guided.dataset.guide).click();
+  const focus = event.target.closest("[data-focus]");
+  if (focus) return $(focus.dataset.focus).focus();
   if (event.target.closest("[data-close]") || event.target === $("drawer")) return closeDrawer();
 
   const combine = event.target.closest("[data-combine]");
@@ -860,14 +853,25 @@ $("seed-cloud").addEventListener("click", async (event) => {
 });
 
 $("guide").addEventListener("click", openGuide);
-$("change-pin").addEventListener("click", openPinChange);
+$("change-pin").addEventListener("click", () => { closeMenu(); openPinChange(); });
+
+function closeMenu() { $("settings-menu").hidden = true; $("settings").setAttribute("aria-expanded", "false"); }
+$("settings").addEventListener("click", (event) => {
+  event.stopPropagation();
+  const open = $("settings-menu").hidden;
+  $("settings-menu").hidden = !open;
+  $("settings").setAttribute("aria-expanded", String(open));
+});
+document.addEventListener("click", (event) => { if (!event.target.closest(".menu-wrap")) closeMenu(); });
 $("lock-form").addEventListener("submit", submitLock);
 $("lock-now").addEventListener("click", async () => {
+  closeMenu();
   await api("/api/auth/logout", { method: "POST" }).catch(() => null);
   showLock();
 });
 
 $("theme").addEventListener("click", () => {
+  closeMenu();
   const root = document.documentElement;
   const dark = root.dataset.theme
     ? root.dataset.theme === "dark"
@@ -893,13 +897,17 @@ function stopDictation() {
   if (listening) { try { listening.recognition.stop(); } catch (error) { /* already stopped */ } }
 }
 
-function startDictation(button) {
+function startDictation(button, onDevice = true) {
   const target = $(button.dataset.dictate);
   const recognition = new Recognition();
   recognition.lang = navigator.language || "en-IN";
   recognition.interimResults = true;
   recognition.continuous = false;
-  try { recognition.processLocally = true; } catch (error) { /* not offered by this browser */ }
+  // Ask for on-device recognition first. Browsers only have it for some
+  // languages, and answer "language-not-supported" otherwise; then the ordinary
+  // recogniser (the browser vendor's service) is used instead.
+  if (onDevice) { try { recognition.processLocally = true; } catch (error) { onDevice = false; } }
+  let retry = false;
   const before = target.value ? `${target.value.trim()} ` : "";
   recognition.onresult = (event) => {
     const heard = Array.from(event.results).map((r) => r[0].transcript).join(" ").trim();
@@ -907,18 +915,21 @@ function startDictation(button) {
     target.dispatchEvent(new Event("input"));
   };
   recognition.onerror = (event) => {
+    if ((event.error === "language-not-supported" || event.error === "service-not-allowed") && onDevice) { retry = true; return; }
     if (event.error === "not-allowed") toast("Microphone access was refused.");
     else if (event.error === "network") toast("This browser's speech service needs internet. Type the note instead.");
+    else if (event.error === "language-not-supported") toast(`This browser cannot recognise ${recognition.lang}. Type the note instead.`);
     else if (event.error !== "aborted" && event.error !== "no-speech") toast(`Dictation stopped: ${event.error}`);
   };
   recognition.onend = () => {
+    if (retry) { startDictation(button, false); return; }
     button.classList.remove("listening");
     button.textContent = button.dataset.idle;
     listening = null;
     if (button.dataset.submit && target.value.trim()) $(button.dataset.submit).requestSubmit();
     else target.focus();
   };
-  button.dataset.idle = button.textContent;
+  if (!button.dataset.idle) button.dataset.idle = button.textContent;
   button.textContent = button.classList.contains("icon") ? "■" : "■ Listening…";
   button.classList.add("listening");
   listening = { recognition, button };

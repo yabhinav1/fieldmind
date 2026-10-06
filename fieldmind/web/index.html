@@ -37,10 +37,15 @@
       <span class="switch-label">Network</span>
     </label>
     <button class="btn" id="sync-now">Sync now</button>
-    <button class="btn ghost" id="guide" title="A guided tour of what to try">Demo guide</button>
-    <button class="btn ghost" id="change-pin" title="Change the device PIN">PIN</button>
-    <button class="btn ghost" id="lock-now" title="Lock this device">Lock</button>
-    <button class="btn ghost icon" id="theme" title="Switch light and dark" aria-label="Switch light and dark">◐</button>
+    <button class="btn primary" id="guide" title="A guided tour of what to try">Demo guide</button>
+    <div class="menu-wrap">
+      <button class="btn ghost icon" id="settings" title="Device settings" aria-label="Device settings" aria-haspopup="true" aria-expanded="false">⚙</button>
+      <div class="menu" id="settings-menu" hidden>
+        <button class="menu-item" id="theme">Switch light / dark</button>
+        <button class="menu-item" id="change-pin">Change the PIN</button>
+        <button class="menu-item" id="lock-now">Lock this device</button>
+      </div>
+    </div>
   </div>
 </header>
 
@@ -56,6 +61,15 @@
     </nav>
 
     <section class="panel active" id="panel-work">
+      <div class="card start" id="start-here" hidden>
+        <h2>Start here</h2>
+        <p class="hint">This device is empty. Three ways to begin:</p>
+        <div class="start-steps">
+          <button class="start-step" data-guide="seed-cloud"><b>1</b><span>Publish headquarters manuals to the cloud</span><small>The device pulls them in so it can answer questions offline.</small></button>
+          <button class="start-step" data-guide="seed"><b>2</b><span>Load sample field notes</span><small>Watch each one be kept private, shared, or shared with names masked.</small></button>
+          <button class="start-step" data-focus="note"><b>3</b><span>Write or dictate your own note</span><small>The sharing decision appears as you type.</small></button>
+        </div>
+      </div>
       <div class="work">
         <div class="card">
           <h2>Record a note</h2>
@@ -92,15 +106,18 @@
               title="Ask by voice. Uses the browser's speech service." aria-label="Ask by voice">🎙</button>
             <button class="btn primary" type="submit">Search</button>
           </form>
-          <div class="row wrap">
-            <div class="segmented" id="mode">
-              <button type="button" data-mode="hybrid" class="active">Combined</button>
-              <button type="button" data-mode="semantic">Meaning</button>
-              <button type="button" data-mode="keyword">Keywords</button>
+          <details class="options">
+            <summary>Search options</summary>
+            <div class="row wrap">
+              <div class="segmented" id="mode">
+                <button type="button" data-mode="hybrid" class="active">Combined</button>
+                <button type="button" data-mode="semantic">Meaning</button>
+                <button type="button" data-mode="keyword">Keywords</button>
+              </div>
+              <label class="check"><input type="checkbox" id="include-old"> Include replaced notes</label>
+              <label class="check" id="rerank-label" title="A small cross-encoder reads the question with each candidate"><input type="checkbox" id="rerank"> Read question and notes together (slower, more precise)</label>
             </div>
-            <label class="check"><input type="checkbox" id="include-old"> Include replaced notes</label>
-            <label class="check" id="rerank-label" title="A small cross-encoder reads the question with each candidate"><input type="checkbox" id="rerank"> Rerank</label>
-          </div>
+          </details>
           <div id="search-meta" class="meta-line"></div>
           <div id="answer"></div>
           <div id="results" class="list"></div>
@@ -139,10 +156,10 @@
         <p class="hint">Two devices changed the same note in different ways. Nothing was overwritten.</p>
         <div id="conflicts" class="list"></div>
       </div>
-      <div class="card">
-        <h2>Recent sync runs</h2>
+      <details class="card under">
+        <summary><h2>Recent sync runs</h2></summary>
         <div id="runs"></div>
-      </div>
+      </details>
     </section>
 
     <section class="panel" id="panel-cloud">
@@ -164,7 +181,10 @@
       <h2>Activity</h2>
       <div id="events" class="events"></div>
     </div>
-    <div class="card engine" id="engine"></div>
+    <details class="card under" id="engine-card">
+      <summary><h2>Under the hood</h2></summary>
+      <div id="engine"></div>
+    </details>
   </aside>
 </main>
 
