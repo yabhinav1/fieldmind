@@ -373,3 +373,56 @@ def test_strong_meaning_beats_a_weak_keyword(fleet, embedder):
     a.service.capture("Motor M-9 overheating, winding temperature 96C, fan blocked by dust")
     top = a.service.search("which machine is running too hot")["results"][0]
     assert top["asset"] == "M-9"
+
+
+def test_resolving_against_a_stale_conflict_raises_a_fresh_one_instead_of_overwriting(fleet):
+    a, b, memory_id, conflict = clash(fleet)
+    # While b thinks about the conflict, a changes the note again.
+    a.service.edit(memory_id, text="Pump P-102 bearing vibration 7.4 mm/s, replace tomorrow morning")
+    a.sync.run_once()
+
+    b.sync.resolve(conflict["id"], "mine")
+    result = b.sync.run_once()
+    assert result["pushed"] == 0 and result["conflicts"] == 1, "b's decision was based on a version the cloud no longer holds"
+    assert "replace tomorrow morning" in cloud_texts(a)[0], "a's newer version was not overwritten"
+    fresh = b.journal.conflicts("open")[0]
+    assert fresh["id"] != conflict["id"] and "tomorrow morning" in fresh["cloud_payload"]["text"]
+
+    b.sync.resolve(fresh["id"], "theirs")
+    assert b.sync.run_once()["conflicts"] == 0
+    assert "tomorrow morning" in b.service.get(memory_id)["text"]
+
+
+def test_captures_and_sync_cycles_can_run_at_the_same_time(fleet):
+    import threading
+
+    a, b = fleet("edge-a"), fleet("edge-b")
+    errors: list[BaseException] = []
+    notes = [f"Valve V-{n} leaking hydraulic fluid near the flange, gasket looks worn" for n in range(20, 40)]
+
+    def capture_all():
+        try:
+            for text in notes:
+                a.service.capture(text, link=False)
+        except BaseException as error:  # noqa: BLE001 - surfaced by the assertion below
+            errors.append(error)
+
+    def sync_often():
+        try:
+            for _ in range(15):
+                a.sync.run_once()
+        except BaseException as error:  # noqa: BLE001
+            errors.append(error)
+
+    threads = [threading.Thread(target=capture_all), threading.Thread(target=sync_often)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+    assert not errors, errors
+
+    a.sync.run_once()
+    assert a.journal.counts()["pending"] == 0
+    assert a.service.stats()["synced"] == len(notes)
+    b.sync.run_once()
+    assert b.service.stats()["replica"] == len(notes)

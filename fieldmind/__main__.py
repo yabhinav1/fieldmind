@@ -1,5 +1,8 @@
 """Command line entry point.
 
+    python -m fieldmind start [--pin 2468] [--only edge-b] [--lan] [--no-browser]
+    python -m fieldmind stop
+    python -m fieldmind reset-all [--pin 2468]
     python -m fieldmind serve --device edge-a --port 8001
     python -m fieldmind seed-cloud
     python -m fieldmind reset --device edge-a
@@ -37,6 +40,19 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("doctor", help="check that this machine is ready to run and to demo offline")
 
+    start = sub.add_parser("start", help="start the cloud and the demo devices, then open the dashboards")
+    start.add_argument("--only", help="start just this device, for example edge-b")
+    start.add_argument("--cloud-url")
+    start.add_argument("--pin", help="pre-set the device PIN")
+    start.add_argument("--lan", action="store_true", help="let phones and other computers open the dashboards")
+    start.add_argument("--no-browser", action="store_true")
+
+    sub.add_parser("stop", help="stop the devices started with 'start'")
+
+    reset_all = sub.add_parser("reset-all", help="stop, erase both devices and the cloud collection, start again")
+    reset_all.add_argument("--pin")
+    reset_all.add_argument("--no-browser", action="store_true")
+
     args = parser.parse_args(argv)
     settings = Settings()
     for name in ("device", "port", "host", "site", "author", "cloud_url", "pin"):
@@ -48,6 +64,15 @@ def main(argv: list[str] | None = None) -> int:
         from .doctor import run
 
         return run(settings)
+
+    if args.command in ("start", "stop", "reset-all"):
+        from . import launcher
+
+        if args.command == "start":
+            return launcher.start(settings, only=args.only, lan=args.lan, open_browser=not args.no_browser, pin=args.pin)
+        if args.command == "stop":
+            return launcher.stop(settings)
+        return launcher.reset_all(settings, pin=args.pin, open_browser=not args.no_browser)
 
     if args.command == "seed-cloud":
         from .cloud import Cloud
