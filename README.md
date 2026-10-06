@@ -192,7 +192,7 @@ The script disconnects the device from the cloud's network, checks that it notic
 
 ### Phones and tablets
 
-`python -m fieldmind start --lan` binds the dashboards to the local network. Open the address on a phone and choose *Add to Home Screen*: the dashboard installs as an app and its shell stays available offline (no note text is ever cached by the browser). The first PIN can only be set on the device itself. The Dictate button uses the browser's speech recognition.
+`python -m fieldmind start --lan` binds the dashboards to the local network. Open the address on a phone and choose *Add to Home Screen*: the dashboard installs as an app and its shell stays available offline (no note text is ever cached by the browser). A device with no PIN yet prints a one-time setup code in its console (the `start` command repeats it); the first person to open the dashboard from another machine enters that code with the PIN they choose, so only someone who can read the device's console can claim it. On the device itself no code is needed. The Dictate button uses the browser's speech recognition.
 
 ## Demo script (5 minutes)
 

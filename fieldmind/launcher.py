@@ -13,6 +13,7 @@ Each device runs as its own process; its log and pid live under data/logs.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -55,6 +56,15 @@ def _ready(port: int, seconds: float = 90) -> bool:
         except httpx.HTTPError:
             time.sleep(0.5)
     return False
+
+
+def _setup_code(log: Path) -> str | None:
+    """The one-time setup code a PIN-less device printed to its console, if any."""
+    try:
+        found = re.findall(r"setup code ([A-Z0-9]{6})", log.read_text(errors="replace"))
+    except OSError:
+        return None
+    return found[-1] if found else None
 
 
 def _local_cloud(url: str) -> bool:
@@ -104,6 +114,10 @@ def start(settings: Settings, only: str | None = None, lan: bool = False, open_b
         url = f"http://127.0.0.1:{port}"
         if _ready(port):
             print(f"{name} ready at {url}")
+            code = _setup_code(logs / f"{name}.log")
+            if code:
+                print(f"  {name} has no PIN yet. On this computer, just choose one on the lock screen. "
+                      f"From a phone or another computer, enter setup code {code} first.")
             if open_browser:
                 webbrowser.open(url)
         else:
