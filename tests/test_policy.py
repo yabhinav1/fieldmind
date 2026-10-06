@@ -103,6 +103,37 @@ def test_equipment_and_vendors_are_not_mistaken_for_people(policy):
         assert decision.scope == "shared" and not decision.signals, text
 
 
+def test_a_mixed_note_is_flagged_for_a_look(policy):
+    decision = policy.decide("Operator slipped on oil near pump P-102, no injury, floor cleaned")
+    assert len(decision.categories) >= 1 and decision.categories[0] == decision.category
+    plain = policy.decide("Pump P-102 bearing vibration high at 7.2 mm/s, recommend replacement")
+    assert plain.categories == ["equipment_fault"] and plain.review is False
+
+
+def test_the_policy_learns_from_overrides_and_remembers_across_restarts(fleet):
+    a = fleet("edge-a")
+    text = "Cooling tower CT-1 fan gearbox oil level low, topped up 2 litres"
+    assert a.service.preview(text)["decision"]["scope"] == "shared"
+    a.service.capture(text, scope="private")  # this site keeps CT-1 notes off the fleet
+    assert a.service.policy.learned_count == 1
+
+    again = "Cooling tower CT-1 gearbox oil low again, topped up 1.5 litres"
+    learned = a.service.preview(again)["decision"]
+    assert learned["scope"] == "private" and learned["decided_by"] == "learned", learned["reasons"]
+    assert "set to private by hand before" in learned["reasons"][0]
+    # Unrelated notes are not affected.
+    assert a.service.preview("Smell of gas near compressor K-4, cleared the bay")["decision"]["scope"] == "shared"
+    # A credential can never be learned into sharing.
+    a.service.capture("SCADA panel login password is Plant@2026", scope="shared")
+    assert a.service.preview("SCADA panel login password is Plant@2027")["decision"]["scope"] == "private"
+
+    a.close()
+    b = fleet("edge-a")
+    assert b.service.policy.learned_count == 1, "learned choices live in the journal"
+    assert b.service.preview(again)["decision"]["decided_by"] == "learned"
+    assert "gearbox" not in str(b.journal.get("policy_examples")), "only vectors are stored, never text"
+
+
 def test_policy_still_works_without_the_name_model(embedder):
     decision = PolicyEngine(embedder).decide("Technician Ravi Kumar replaced the V-17 gasket")
     assert decision.scope == "redacted" and "Ravi" not in decision.shared_text

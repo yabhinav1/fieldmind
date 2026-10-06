@@ -18,7 +18,9 @@ The outcome is one of three scopes:
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import asdict, dataclass, field
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -27,6 +29,20 @@ from .ner import NameFinder
 
 PRIVATE, SHARED, REDACTED = "private", "shared", "redacted"
 PRIORITY_LABEL = {0: "low", 1: "normal", 2: "urgent"}
+
+# A second category whose score comes within this margin of the best one also
+# describes the note, and is reported so a mixed note is not treated as plain.
+SECONDARY_MARGIN = 0.03
+
+# When a person overrides a decision, the note's vector and the chosen scope are
+# kept (never the text). A later note at least this similar follows that choice.
+LEARNED_AT = 0.88
+MAX_LEARNED = 200
+
+
+class ExampleStore(Protocol):
+    def get(self, key: str, default: Any = None) -> Any: ...
+    def set(self, key: str, value: Any) -> None: ...
 
 # category -> (default scope, sync priority, example sentences)
 CATEGORIES: dict[str, tuple[str, int, list[str]]] = {
@@ -77,6 +93,8 @@ CATEGORIES: dict[str, tuple[str, int, list[str]]] = {
     ]),
 }
 
+SCOPE_LABEL = {PRIVATE: "private", SHARED: "shared", REDACTED: "shared with details masked"}
+
 CATEGORY_LABEL = {
     "safety_hazard": "Safety hazard",
     "equipment_fault": "Equipment fault",
@@ -126,6 +144,10 @@ class Decision:
     signals: list[dict] = field(default_factory=list)
     scores: dict[str, float] = field(default_factory=dict)
     shared_text: str | None = None
+    # Every category that describes the note, best first. More than one means the
+    # note mixes topics and deserves a look before it is shared.
+    categories: list[str] = field(default_factory=list)
+    review: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -135,23 +157,73 @@ class Decision:
         return {
             "scope": self.scope,
             "category": self.category,
+            "categories": self.categories,
             "priority": self.priority,
             "confidence": self.confidence,
             "decided_by": self.decided_by,
+            "review": self.review,
             "reasons": self.reasons,
             "signals": sorted({s["type"] for s in self.signals}),
         }
 
 
 class PolicyEngine:
-    def __init__(self, embedder: Embedder, names: NameFinder | None = None):
+    def __init__(self, embedder: Embedder, names: NameFinder | None = None, store: ExampleStore | None = None):
         self._embedder = embedder
         self._names_model = names
         self._names = list(CATEGORIES)
         self._prototypes = [np.asarray(embedder.dense(CATEGORIES[name][2])) for name in self._names]
+        self._store = store
+        self._learned: list[dict] = list(store.get("policy_examples", [])) if store is not None else []
+        self._learned_matrix = self._matrix()
+
+    # -- learning from the person ------------------------------------------
+
+    @property
+    def learned_count(self) -> int:
+        return len(self._learned)
+
+    def _matrix(self) -> np.ndarray | None:
+        return np.asarray([e["vector"] for e in self._learned], dtype=np.float32) if self._learned else None
+
+    def learn(self, text: str, scope: str) -> None:
+        """Remember that a note like this one was set to ``scope`` by hand. Only the
+        vector is kept, so the example store never holds the note's text."""
+        vector = np.asarray(self._embedder.dense([text])[0], dtype=np.float32)
+        if self._learned_matrix is not None:
+            sims = self._learned_matrix @ vector
+            nearest = int(sims.argmax())
+            if sims[nearest] >= 0.99:  # the same note again: just update the choice
+                self._learned[nearest].update(scope=scope, at=time.time())
+                self._persist()
+                return
+        self._learned.append({"vector": [round(float(v), 5) for v in vector], "scope": scope, "at": time.time()})
+        del self._learned[:-MAX_LEARNED]
+        self._persist()
+
+    def forget(self) -> None:
+        self._learned = []
+        self._persist()
+
+    def _persist(self) -> None:
+        self._learned_matrix = self._matrix()
+        if self._store is not None:
+            self._store.set("policy_examples", self._learned)
+
+    def _recall(self, vector: np.ndarray) -> tuple[str, float] | None:
+        if self._learned_matrix is None:
+            return None
+        sims = self._learned_matrix @ vector
+        nearest = int(sims.argmax())
+        return (self._learned[nearest]["scope"], float(sims[nearest])) if sims[nearest] >= LEARNED_AT else None
+
+    # -- classification ---------------------------------------------------
 
     def classify(self, text: str) -> tuple[str, float, dict[str, float]]:
-        vector = np.asarray(self._embedder.dense([text])[0])
+        category, confidence, scores, _ = self._classify(np.asarray(self._embedder.dense([text])[0]))
+        return category, confidence, scores
+
+    def _classify(self, vector: np.ndarray) -> tuple[str, float, dict[str, float], list[str]]:
         scores = {}
         for name, protos in zip(self._names, self._prototypes, strict=True):
             sims = protos @ vector
@@ -160,7 +232,8 @@ class PolicyEngine:
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
         margin = ranked[0][1] - ranked[1][1]
         confidence = round(min(0.99, 0.5 + margin * 4), 2)
-        return ranked[0][0], confidence, {k: round(v, 3) for k, v in ranked}
+        categories = [name for name, score in ranked if score >= ranked[0][1] - SECONDARY_MARGIN]
+        return ranked[0][0], confidence, {k: round(v, 3) for k, v in ranked}, categories
 
     def detect(self, text: str) -> list[dict]:
         found, taken = [], []
@@ -200,7 +273,8 @@ class PolicyEngine:
         return out
 
     def decide(self, text: str, override: str | None = None) -> Decision:
-        category, confidence, scores = self.classify(text)
+        vector = np.asarray(self._embedder.dense([text])[0])
+        category, confidence, scores, categories = self._classify(vector)
         default_scope, priority, _ = CATEGORIES[category]
         signals = self.detect(text)
         types = {s["type"] for s in signals}
@@ -208,6 +282,7 @@ class PolicyEngine:
         reasons: list[str] = []
         scope = default_scope
         shared_text = None
+        review = False
 
         if "credential" in types:
             scope, priority = PRIVATE, 0
@@ -224,14 +299,37 @@ class PolicyEngine:
         else:
             reasons.append(f"Reads as \"{label}\" with no personal details, so it is shared.")
 
+        # A note that also reads as another kind. Sharing a note that is partly
+        # personal, or keeping one that is partly a hazard, deserves a look.
+        for other in categories[1:]:
+            other_scope = CATEGORIES[other][0]
+            if other_scope != default_scope and "credential" not in types:
+                review = True
+                if other_scope == PRIVATE:
+                    reasons.append(f"Also reads partly as \"{CATEGORY_LABEL[other]}\". Check it before it is shared.")
+                else:
+                    reasons.append(f"Also reads partly as \"{CATEGORY_LABEL[other]}\", which the fleet may need. "
+                                   "Share it by hand if the personal part can go.")
+                break
+
         if scope != PRIVATE and priority == 2:
             reasons.append("Safety related, so it is sent first when the link returns.")
 
         decision = Decision(
             scope=scope, category=category, category_label=label, priority=priority,
             priority_label=PRIORITY_LABEL[priority], confidence=confidence, reasons=reasons,
-            signals=signals, scores=scores, shared_text=shared_text,
+            signals=signals, scores=scores, shared_text=shared_text, categories=categories, review=review,
         )
+
+        # A choice the person made for a note like this one carries over.
+        learned = self._recall(vector) if "credential" not in types else None
+        if learned and learned[0] != decision.scope:
+            self._apply_override(decision, text, learned[0])
+            decision.decided_by = "learned"
+            decision.reasons = [f"A note like this one ({int(learned[1] * 100)}% similar) was set to "
+                                f"{SCOPE_LABEL[decision.scope]} by hand before, so this one follows it."]
+            decision.review = False
+
         return self._apply_override(decision, text, override) if override else decision
 
     def _apply_override(self, decision: Decision, text: str, override: str) -> Decision:
@@ -246,10 +344,14 @@ class PolicyEngine:
             override = REDACTED
         decision.scope = override
         decision.decided_by = "user"
+        decision.review = False
         decision.shared_text = self.redact(text, decision.signals) if override == REDACTED else None
         if override == PRIVATE:
             decision.priority = 0
             decision.priority_label = PRIORITY_LABEL[0]
+        else:
+            decision.priority = CATEGORIES[decision.category][1]
+            decision.priority_label = PRIORITY_LABEL[decision.priority]
         decision.reasons = [f"Set to {override} by the user."] + (
             ["Personal details are still masked in the cloud copy."] if override == REDACTED else [])
         return decision

@@ -59,6 +59,10 @@ class Settings:
     # "Authorization: Bearer <token>" on it anyway.
     metrics_token: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_METRICS_TOKEN"))
 
+    # Rerank search candidates with a small cross-encoder (about 23 MB). Answers
+    # always use it when it is loaded; search uses it on request.
+    rerank: bool = field(default_factory=lambda: _env("RERANK", "1") not in ("0", "false", "no", ""))
+
     # On-device language model for phrasing answers (scripts/llm.ps1 runs it).
     # Leave the model empty to always compose answers from the notes themselves.
     ollama_url: str = field(default_factory=lambda: _env("OLLAMA_URL", "http://127.0.0.1:11435"))

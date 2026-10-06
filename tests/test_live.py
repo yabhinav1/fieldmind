@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(not server_running(), reason="Qdrant Server is n
 
 
 @pytest.fixture
-def live(tmp_path, embedder, names):
+def live(tmp_path, embedder, names, reranker):
     import shutil
 
     collection = f"test_{uuid.uuid4().hex[:10]}"
@@ -34,7 +34,7 @@ def live(tmp_path, embedder, names):
     def make(name: str, **overrides):
         settings = Settings(device_id=name, site="plant-1", data_root=tmp_path, cloud_url=URL,
                             collection=collection, sync_batch=100, ollama_model="", **overrides)
-        device = build(settings, embedder=embedder, names=names)
+        device = build(settings, embedder=embedder, names=names, reranker=reranker)
         devices.append(device)
         return device
 

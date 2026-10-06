@@ -239,9 +239,12 @@ function renderStatus(s) {
       <dt>Meaning model</dt><dd>${esc(s.engine.dense_model.split("/").pop())} · ${s.engine.dimensions}d</dd>
       <dt>Keyword model</dt><dd>${esc(s.engine.sparse_model)}</dd>
       <dt>Name masking</dt><dd>${esc(s.engine.name_model || "Title rules only")}</dd>
+      <dt>Reranking</dt><dd>${esc(s.engine.reranker || "Off")}</dd>
+      <dt>Learned choices</dt><dd>${s.engine.learned_examples || 0} from this device's overrides</dd>
       <dt>Answers</dt><dd>${esc(s.engine.answer_model || "Composed from notes")}</dd>
       <dt>Storage reserved</dt><dd>${bytes(disk)}</dd>
     </dl>`;
+  $("rerank-label").hidden = !s.engine.reranker;
   renderFilters();
   if (!link.online) seen("offline", true);
   if (state.guideOpen) renderGuide();
@@ -377,7 +380,7 @@ async function runSearch(withAnswer = true) {
   if (!query) return;
   const seq = ++state.searchSeq;
   seen("search", true);
-  const body = { query, mode: state.mode, limit: 8, include_superseded: $("include-old").checked };
+  const body = { query, mode: state.mode, limit: 8, include_superseded: $("include-old").checked, rerank: $("rerank").checked };
   if (withAnswer) {
     $("answer").innerHTML = `<div class="answer pending"><div class="answer-head">Working out an answer on this device…</div></div>`;
     api("/api/ask", { method: "POST", body: { question: query } })
@@ -390,7 +393,7 @@ async function runSearch(withAnswer = true) {
   const t = found.timing_ms;
   const total = found.searched.local + found.searched.replica;
   $("search-meta").innerHTML =
-    `<b>${t.search} ms</b> search · ${t.embed} ms to read the question · ${total} memories · <b>${found.network_calls} network calls</b>`;
+    `<b>${t.search} ms</b> search · ${t.embed} ms to read the question${found.reranked ? ` · ${t.rerank} ms to rerank` : ""} · ${total} memories · <b>${found.network_calls} network calls</b>`;
 
   $("results").innerHTML = found.results.length ? found.results.map((r) => {
     const parts = [];
@@ -399,6 +402,9 @@ async function runSearch(withAnswer = true) {
     }
     if (r.matched.keyword !== undefined) {
       parts.push(`<span class="signal">Keywords <span class="bar"><span style="width:${Math.round(r.strength.keyword * 100)}%"></span></span> ${r.matched.keyword.toFixed(2)}</span>`);
+    }
+    if (r.matched.rerank !== undefined) {
+      parts.push(`<span class="signal">Read together <span class="bar"><span style="width:${Math.round(r.strength.rerank * 100)}%"></span></span> ${r.matched.rerank.toFixed(2)}</span>`);
     }
     return memoryItem(r, `<div class="signals">${parts.join("")}</div>`);
   }).join("") : `<div class="empty-state">Nothing in device memory matches that.</div>`;
@@ -735,6 +741,7 @@ $("mode").addEventListener("click", (event) => {
   runSearch(false);
 });
 $("include-old").addEventListener("change", () => runSearch(false));
+$("rerank").addEventListener("change", () => runSearch(false));
 
 $("memory-filters").addEventListener("click", (event) => {
   const chip = event.target.closest(".chip");

@@ -38,6 +38,12 @@ def _name_model(settings: Settings) -> bool:
     return all((settings.models_dir / "ner" / name).exists() for name in FILES)
 
 
+def _reranker_model(settings: Settings) -> bool:
+    from .reranker import FILES
+
+    return all((settings.models_dir / "reranker" / name).exists() for name in FILES)
+
+
 def run(settings: Settings) -> int:
     results = []
     print("FieldMind preflight\n")
@@ -68,6 +74,9 @@ def run(settings: Settings) -> int:
                            "" if embedding else "will download about 130 MB on first start"))
     results.append(_report(OK if names else WARN, "Name recognition model",
                            "" if names else "will download about 105 MB on first start"))
+    reranker = _reranker_model(settings) or not settings.rerank
+    results.append(_report(OK if reranker else WARN, "Reranking model",
+                           "turned off" if not settings.rerank else "" if reranker else "will download about 23 MB on first start"))
 
     print("\nCloud")
     from .cloud import Cloud
@@ -108,7 +117,7 @@ def run(settings: Settings) -> int:
     if FAIL in results:
         print("Not ready. Fix the FAIL lines above.")
         return 1
-    offline_ready = embedding and names
+    offline_ready = embedding and names and reranker
     print("Ready." + ("" if offline_ready else " Internet is needed once, to download the models.")
           + (" Some optional parts are off; see the warn lines." if WARN in results else ""))
     return 0

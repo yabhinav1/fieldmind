@@ -54,6 +54,7 @@ class SearchBody(BaseModel):
     asset: str | None = None
     source: str | None = None
     include_superseded: bool = False
+    rerank: bool = False
 
 
 class AskBody(BaseModel):
@@ -209,7 +210,9 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             "engine": {"vector_store": "Qdrant Edge (in-process)", "dense_model": DENSE_MODEL,
                        "sparse_model": "BM25 (Qdrant Edge)", "dimensions": d.embedder.dim,
                        "answer_model": settings.ollama_model if d.service.llm.available() else None,
-                       "name_model": "BERT NER (ONNX)" if d.names.available else None},
+                       "name_model": "BERT NER (ONNX)" if d.names.available else None,
+                       "reranker": "MiniLM cross-encoder (ONNX)" if d.service.reranker else None,
+                       "learned_examples": d.service.policy.learned_count},
             "sync": {"last_sync_at": d.journal.get("last_sync_at"), "totals": d.journal.totals(), "interval": settings.sync_interval,
                      "batch": settings.sync_batch},
             "now": time.time(),
@@ -276,7 +279,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         if not body.query.strip():
             return {"query": "", "results": [], "timing_ms": {}, "candidates": 0}
         return dev().service.search(body.query, body.mode, body.limit, body.scope, body.kind, body.asset,
-                                    body.source, body.include_superseded)
+                                    body.source, body.include_superseded, body.rerank)
 
     @app.post("/api/ask")
     def ask(body: AskBody):

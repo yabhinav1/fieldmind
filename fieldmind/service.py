@@ -15,6 +15,7 @@ from .embedder import Embedder
 from .journal import Journal
 from .llm import LocalModel
 from .policy import PRIVATE, REDACTED, SHARED, PolicyEngine, find_asset
+from .reranker import Reranker
 from .store import Shard, build_filter
 
 # Cosine similarity bands for two notes about the same asset, measured on this
@@ -32,6 +33,10 @@ KEYWORD_HALF = 4.0
 SEMANTIC_WEIGHT, KEYWORD_WEIGHT = 0.75, 0.25
 MIN_SCORE = 0.05
 ANSWER_AT = 0.20
+# When reranking, the cross-encoder's verdict and the fused score share the final
+# score. The fused score keeps keyword-exact matches from being buried.
+RERANK_DEPTH = 20
+RERANK_WEIGHT = 0.6
 
 # Reference material is published centrally. A field note can relate to it but
 # never replaces it.
@@ -67,13 +72,14 @@ def cloud_view(payload: dict) -> dict:
 
 class MemoryService:
     def __init__(self, settings: Settings, embedder: Embedder, local: Shard, replica: Shard,
-                 journal: Journal, policy: PolicyEngine):
+                 journal: Journal, policy: PolicyEngine, reranker: Reranker | None = None):
         self.settings = settings
         self.embedder = embedder
         self.local = local
         self.replica = replica
         self.journal = journal
         self.policy = policy
+        self.reranker = reranker if reranker is not None and reranker.available else None
         self.llm = LocalModel(settings.ollama_url, settings.ollama_model)
         # Every change to the local shard and the outbox happens under this lock, so
         # a capture from the dashboard and a sync cycle never interleave half-way.
@@ -200,6 +206,9 @@ class MemoryService:
 
         now = time.time()
         memory_id = str(uuid.uuid4())
+        if decision.decided_by == "user":
+            self.policy.learn(text, decision.scope)
+
         payload = {
             "text": text,
             "kind": kind,
@@ -311,6 +320,8 @@ class MemoryService:
         if text_changed or scope is not None:
             keep = scope if scope is not None else (before_scope if payload.get("policy", {}).get("decided_by") == "user" else None)
             decision = self.policy.decide(payload["text"], override=keep)
+            if scope is not None and decision.decided_by == "user":
+                self.policy.learn(payload["text"], decision.scope)
             payload.update(scope=decision.scope, category=decision.category, priority=decision.priority,
                            policy=decision.summary())
             payload.pop("shared_text", None)
@@ -354,12 +365,14 @@ class MemoryService:
 
     def search(self, query: str, mode: str = "hybrid", limit: int = 8, scope: str | None = None,
                kind: str | None = None, asset: str | None = None, source: str | None = None,
-               include_superseded: bool = False) -> dict:
+               include_superseded: bool = False, rerank: bool = False) -> dict:
         """Federated search over both shards.
 
         Each shard is asked separately for semantic and keyword matches. Raw scores
         are comparable across shards, so every memory gets one semantic and one
-        keyword score, which are then combined into a single relevance score.
+        keyword score, which are then combined into a single relevance score. With
+        ``rerank``, a cross-encoder then reads the question with each of the best
+        candidates and the two verdicts are blended.
         """
         query = query.strip()
         must = {"scope": scope, "kind": kind, "asset": asset}
@@ -399,19 +412,32 @@ class MemoryService:
                 results.append({**self._present(entry["hit"]), "score": round(score, 4),
                                 "matched": entry["matched"], "strength": entry["strength"]})
         results.sort(key=lambda r: (r["score"], r["updated_at"]), reverse=True)
-        self.search_ms.append((time.perf_counter() - t0) * 1000)
+
+        reranked = rerank and self.reranker is not None and bool(results)
+        if reranked:
+            head = results[:RERANK_DEPTH]
+            for result, verdict in zip(head, self.reranker.score(query, [r["text"] for r in head]), strict=True):
+                result["matched"]["rerank"] = round(verdict, 4)
+                result["strength"]["rerank"] = round(verdict, 4)
+                result["score"] = round((1 - RERANK_WEIGHT) * result["score"] + RERANK_WEIGHT * verdict, 4)
+            head.sort(key=lambda r: (r["score"], r["updated_at"]), reverse=True)
+            results[:RERANK_DEPTH] = head
+        t3 = time.perf_counter()
+        self.search_ms.append((t3 - t0) * 1000)
         self.searches += 1
 
         return {
             "query": query,
             "mode": mode,
+            "reranked": reranked,
             "results": results[:limit],
             "candidates": len(results),
             "searched": {"local": self.local.count(), "replica": self.replica.count()},
             "timing_ms": {
                 "embed": round((t1 - t0) * 1000, 2),
                 "search": round((t2 - t1) * 1000, 2),
-                "total": round((time.perf_counter() - t0) * 1000, 2),
+                "rerank": round((t3 - t2) * 1000, 2) if reranked else 0,
+                "total": round((t3 - t0) * 1000, 2),
             },
             "network_calls": 0,
         }
@@ -423,7 +449,7 @@ class MemoryService:
         one is running and its answer matches the notes it cites; otherwise the
         answer is composed from the memories themselves."""
         started = time.perf_counter()
-        found = self.search(question, limit=limit)
+        found = self.search(question, limit=limit, rerank=True)
         relevant = [r for r in found["results"] if r["score"] >= ANSWER_AT][:3]
         points = []
         for result in relevant:
