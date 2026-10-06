@@ -26,13 +26,29 @@ def test_first_pin_is_chosen_on_the_device(app):
     with TestClient(app, client=ON_DEVICE) as client:
         remote = TestClient(app, client=ELSEWHERE)  # same running app, reached over the network
         state = remote.get("/api/auth/state").json()
-        assert state == {**state, "configured": False, "authenticated": False, "can_set_up": False}
+        assert state == {**state, "configured": False, "authenticated": False, "needs_setup_code": True}
         assert remote.post("/api/auth/setup", json={"pin": "2468"}).status_code == 403
+        assert client.get("/api/auth/state").json()["needs_setup_code"] is False
 
         assert client.post("/api/auth/setup", json={"pin": "12"}).status_code == 400
         assert client.post("/api/auth/setup", json={"pin": "2468"}).status_code == 200
         assert client.get("/api/status").json()["device"]["id"] == "edge-a"
         assert client.post("/api/auth/setup", json={"pin": "9999"}).status_code == 409
+
+
+def test_first_pin_over_the_network_needs_the_console_setup_code(fleet, capsys):
+    app = create_app(device=fleet("edge-a"))
+    with TestClient(app, client=ELSEWHERE) as remote:
+        code = capsys.readouterr().out.split("setup code ")[1].split()[0]
+        assert len(code) == 6
+        assert remote.post("/api/auth/setup", json={"pin": "2468", "setup_code": "NOPE00"}).status_code == 403
+        assert remote.post("/api/auth/setup", json={"pin": "2468", "setup_code": code}).status_code == 403, \
+            "a wrong guess replaces the code, so the old one is useless"
+        fresh = capsys.readouterr().out.split("setup code ")[-1].split()[0]
+        assert fresh != code
+        assert remote.post("/api/auth/setup", json={"pin": "2468", "setup_code": fresh.lower()}).status_code == 200
+        assert remote.get("/api/status").status_code == 200
+        assert remote.post("/api/auth/setup", json={"pin": "1111", "setup_code": fresh}).status_code == 409
 
 
 def test_login_logout_and_lockout(app):

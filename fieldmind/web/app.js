@@ -129,19 +129,23 @@ async function showLock() {
   }
   if (info.authenticated) { state.locked = false; return; }
   state.setup = !info.configured;
+  state.needsCode = Boolean(info.needs_setup_code);
   $("lock-title").textContent = state.setup ? `Set a PIN for ${info.device}` : `${info.device} is locked`;
   $("lock-hint").textContent = state.setup
-    ? (info.can_set_up ? "Choose a PIN of at least 4 characters. It protects every note on this device."
-      : "This device has no PIN yet. Set the first PIN on the device itself.")
+    ? (state.needsCode
+      ? "This device has no PIN yet. Enter the setup code shown in its console, then choose a PIN of at least 4 characters."
+      : "Choose a PIN of at least 4 characters. It protects every note on this device.")
     : "Enter the PIN for this device.";
+  $("lock-code").hidden = !(state.setup && state.needsCode);
   $("lock-confirm").hidden = !state.setup;
   $("lock-submit").textContent = state.setup ? "Set PIN" : "Unlock";
-  $("lock-submit").disabled = state.setup && !info.can_set_up;
+  $("lock-submit").disabled = false;
   $("lock-error").textContent = "";
+  $("lock-code").value = "";
   $("lock-pin").value = "";
   $("lock-confirm").value = "";
   $("lock").hidden = false;
-  $("lock-pin").focus();
+  ($("lock-code").hidden ? $("lock-pin") : $("lock-code")).focus();
 }
 
 async function submitLock(event) {
@@ -151,8 +155,10 @@ async function submitLock(event) {
     $("lock-error").textContent = "The two PINs do not match.";
     return;
   }
+  const body = { pin };
+  if (state.setup && state.needsCode) body.setup_code = $("lock-code").value.trim();
   try {
-    await api(state.setup ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body: { pin } });
+    await api(state.setup ? "/api/auth/setup" : "/api/auth/login", { method: "POST", body });
   } catch (error) {
     $("lock-error").textContent = error.message;
     $("lock-pin").select();

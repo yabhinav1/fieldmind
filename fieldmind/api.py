@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -69,6 +70,7 @@ class ToggleBody(BaseModel):
 
 class PinBody(BaseModel):
     pin: str
+    setup_code: str | None = None
 
 
 class ChangePinBody(BaseModel):
@@ -97,6 +99,8 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         state["auth"] = Auth(dev.journal, settings.pin)
         dev.journal.log("system", f"Device {settings.device_id} started. Embedding model loaded from {dev.embedder.loaded_from} "
                                   f"in {dev.embedder.load_seconds}s.")
+        if not state["auth"].configured:
+            new_setup_code()
         dev.sync.start()
         dev.service.llm.warm()
         yield
@@ -132,13 +136,24 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
     def on_device(request: Request) -> bool:
         return request.client is not None and request.client.host in ("127.0.0.1", "::1")
 
+    def new_setup_code() -> None:
+        """A device with no PIN yet prints a one-time code in its console. Someone
+        opening the dashboard over the network needs it to choose the first PIN,
+        so only a person who can read the device's console can claim it. A wrong
+        code is replaced at once, which leaves nothing to guess at."""
+        state["setup_code"] = secrets.token_hex(3).upper()
+        print(f"\n  {settings.device_id} has no PIN yet. To set one from a browser, enter setup code "
+              f"{state['setup_code']} on the lock screen.\n", flush=True)
+
     @app.get("/api/auth/state")
     def auth_state(request: Request):
+        configured = auth().configured
         return {
             "device": settings.device_id,
-            "configured": auth().configured,
+            "configured": configured,
             "authenticated": auth().valid(request.cookies.get(cookie)),
-            "can_set_up": on_device(request),
+            "can_set_up": not configured,
+            "needs_setup_code": not configured and not on_device(request),
             "locked_for": auth().locked_for(),
         }
 
@@ -147,11 +162,15 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         if auth().configured:
             raise HTTPException(409, "This device already has a PIN.")
         if not on_device(request):
-            raise HTTPException(403, "The first PIN must be set on the device itself.")
+            given = (body.setup_code or "").strip().upper()
+            if not given or not secrets.compare_digest(given, state.get("setup_code", "")):
+                new_setup_code()
+                raise HTTPException(403, "That setup code is wrong. A new one has been printed in the device's console.")
         try:
             auth().set_pin(body.pin)
         except ValueError as error:
             raise HTTPException(400, str(error)) from None
+        state.pop("setup_code", None)
         dev().journal.log("security", "A device PIN was set.")
         return open_session(response)
 
