@@ -67,10 +67,11 @@ def _size(payload: dict, sparse: SparseVector | None, dense: bool = True) -> int
 
 
 class SyncEngine:
-    def __init__(self, service: MemoryService, journal: Journal, cloud: Cloud):
+    def __init__(self, service: MemoryService, journal: Journal, cloud: Cloud, peers=None):
         self.service = service
         self.journal = journal
         self.cloud = cloud
+        self.peers = peers
         self.settings = service.settings
         self._run_lock = threading.Lock()
         self._stop = threading.Event()
@@ -136,6 +137,7 @@ class SyncEngine:
             "cloud_url": self.cloud.url,
             "checked_at": self._checked_at,
             "offline_since": self._offline_since,
+            "peers": self.peers.status() if self.peers and self.peers.enabled else [],
         }
 
     # -- background loop --------------------------------------------------
@@ -153,8 +155,12 @@ class SyncEngine:
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                if self.check_link() and self.auto_sync:
-                    self.run_once("auto")
+                if self.check_link():
+                    if self.auto_sync:
+                        self.run_once("auto")
+                elif self.peers and self.peers.enabled and not self.forced_offline:
+                    # No cloud. Learn from other devices on the local network instead.
+                    self.peers.exchange()
             except Exception as error:  # the loop must survive any single failure
                 self.journal.log("sync", f"Background sync error: {error}", level="error")
             self._wake.wait(self.settings.sync_interval)
@@ -167,7 +173,9 @@ class SyncEngine:
             return {"status": "busy"}
         try:
             if not self.check_link():
-                return {"status": "offline", "pending": self.journal.counts()["pending"]}
+                peers = (self.peers.exchange() if self.peers and self.peers.enabled and not self.forced_offline
+                         else {})
+                return {"status": "offline", "pending": self.journal.counts()["pending"], "peers": peers}
             stats = dict(pushed=0, pulled=0, removed=0, merged=0, conflicts=0, failed=0, bytes_up=0, bytes_down=0,
                          cloud_points=0)
             quiet = trigger == "auto" and not self.journal.pending(1)
@@ -403,7 +411,8 @@ class SyncEngine:
         # Only the bookkeeping fields are read for the whole-shard comparison; full
         # payloads are fetched for the few memories that actually change.
         local = {r["id"]: r["payload"] for r in service.local.scroll(fields=list(INDEX_FIELDS))}
-        replica = {r["id"]: r["payload"].get("rev", 0) for r in service.replica.scroll(fields=["rev"])}
+        replica_index = {r["id"]: r["payload"] for r in service.replica.scroll(fields=["rev", "via_peer"])}
+        replica = {i: p.get("rev", 0) for i, p in replica_index.items()}
         wanted: dict[str, str] = {}
 
         for memory_id, entry in manifest.items():
@@ -424,7 +433,9 @@ class SyncEngine:
                 if memory_id in replica:
                     service.replica.delete([memory_id])
                     stats["removed"] += 1
-            elif replica.get(memory_id) != rev:
+            elif replica.get(memory_id) != rev or replica_index[memory_id].get("via_peer"):
+                # New or changed in the cloud, or learned from a peer first: the
+                # cloud's copy becomes the one this device holds.
                 wanted[memory_id] = "replica"
 
         behind = sum(1 for i, e in manifest.items()
@@ -435,7 +446,9 @@ class SyncEngine:
             wanted = {i: target for i, target in wanted.items()
                       if target == "local" or replica.get(i) != manifest[i].get("rev", 0)}
 
-        gone = [i for i in replica if i not in manifest]
+        # A memory learned from a peer may not have reached the cloud yet; keep it
+        # until the cloud has an opinion about it.
+        gone = [i for i in replica if i not in manifest and not replica_index.get(i, {}).get("via_peer")]
         service.replica.delete(gone)
         stats["removed"] += len(gone)
 

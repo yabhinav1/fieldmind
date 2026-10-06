@@ -173,7 +173,7 @@ function badges(m, options = {}) {
   const out = [];
   if (m.asset) out.push(`<span class="badge asset">${esc(m.asset)}</span>`);
   if (m.source === "replica" || options.cloud) {
-    out.push(`<span class="badge replica">From cloud · ${esc(m.origin_device || m.device_id || "unknown")}</span>`);
+    out.push(`<span class="badge replica">${m.via_peer ? `From ${esc(m.via_peer)} nearby` : "From cloud"} · ${esc(m.origin_device || m.device_id || "unknown")}</span>`);
     if (m.redacted) out.push(`<span class="badge">Details masked</span>`);
   } else {
     out.push(`<span class="badge ${esc(m.scope)}">${esc(SCOPE[m.scope] || m.scope)}</span>`);
@@ -634,9 +634,13 @@ async function loadSync() {
 
   const t = data.totals;
   const link = data.link;
+  const peers = (link.peers || []).map((p) => p.device
+    ? `${esc(p.device)} · ${p.received} received · seen ${ago(p.at)}`
+    : `${esc(p.url)} · not reached yet`).join("<br>");
   $("sync-summary").innerHTML = `<dl class="kv">
     <dt>Cloud</dt><dd class="mono">${esc(link.cloud_url)}</dd>
     <dt>Link</dt><dd>${link.online ? "Up" : link.forced_offline ? "Network off on this device" : "Cloud unreachable"}</dd>
+    ${peers ? `<dt>Nearby devices</dt><dd>${peers}<div class="hint">Consulted over the local network when the cloud is out of reach.</div></dd>` : ""}
     <dt>Successful syncs</dt><dd>${t.runs}</dd>
     <dt>Sent</dt><dd>${t.pushed} memories · ${bytes(t.bytes_up)}</dd>
     <dt>Received</dt><dd>${t.pulled} memories · ${bytes(t.bytes_down)}</dd>

@@ -535,6 +535,7 @@ class MemoryService:
             "superseded_by": payload.get("superseded_by"),
             "relation": payload.get("relation"),
             "sync_state": "replica" if shard == "replica" else payload.get("sync_state", "private"),
+            "via_peer": payload.get("via_peer"),
             "source": shard,
             "mine": payload.get("origin_device") == self.settings.device_id,
         }

@@ -9,6 +9,7 @@ from .config import Settings
 from .embedder import Embedder
 from .journal import Journal
 from .ner import NameFinder
+from .peers import Fetch, PeerExchange
 from .policy import PolicyEngine
 from .reranker import Reranker
 from .service import MemoryService
@@ -28,6 +29,7 @@ class Device:
     sync: SyncEngine
     reranker: Reranker | None = None
     vault: Vault | None = None
+    peers: PeerExchange | None = None
 
     closed: bool = False
 
@@ -42,7 +44,8 @@ class Device:
 
 
 def build(settings: Settings, embedder: Embedder | None = None, cloud_client=None,
-          names: NameFinder | None = None, reranker: Reranker | None = None) -> Device:
+          names: NameFinder | None = None, reranker: Reranker | None = None,
+          peer_fetch: Fetch | None = None) -> Device:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     embedder = embedder or Embedder(settings.models_dir)
     names = names or NameFinder(settings.models_dir)
@@ -55,5 +58,6 @@ def build(settings: Settings, embedder: Embedder | None = None, cloud_client=Non
     policy = PolicyEngine(embedder, names, store=journal)
     service = MemoryService(settings, embedder, local, replica, journal, policy, reranker=reranker)
     cloud = Cloud(settings.cloud_url, settings.cloud_api_key, settings.collection, client=cloud_client)
-    sync = SyncEngine(service, journal, cloud)
-    return Device(settings, embedder, names, journal, service, cloud, sync, reranker, vault)
+    peers = PeerExchange(service, fetch=peer_fetch)
+    sync = SyncEngine(service, journal, cloud, peers=peers)
+    return Device(settings, embedder, names, journal, service, cloud, sync, reranker, vault, peers)

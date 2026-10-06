@@ -15,6 +15,7 @@ from . import __version__, metrics
 from .auth import Auth, Locked
 from .config import DENSE_MODEL, Settings
 from .demo import DEFAULT_NOTES, DEVICE_NOTES, seed_cloud
+from .peers import HEADER as PEER_HEADER
 from .runtime import Device, build
 from .service import NotFound
 
@@ -79,6 +80,10 @@ class ResolveBody(BaseModel):
     text: str | None = None
 
 
+class PeerIdsBody(BaseModel):
+    ids: list[str] = Field(default_factory=list, max_length=256)
+
+
 def create_app(settings: Settings | None = None, device: Device | None = None) -> FastAPI:
     settings = settings or (device.settings if device else Settings())
     state: dict = {}
@@ -109,7 +114,12 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
     @app.middleware("http")
     async def guard(request: Request, call_next):
         path = request.url.path
-        if path.startswith("/api/") and not path.startswith("/api/auth/"):
+        if path.startswith("/api/peer/"):
+            # Other devices, not people: one shared fleet token instead of the PIN.
+            token = settings.peer_token
+            if not token or request.headers.get(PEER_HEADER) != token:
+                return JSONResponse({"detail": "Peer exchange is off or the fleet token is wrong."}, status_code=403)
+        elif path.startswith("/api/") and not path.startswith("/api/auth/"):
             if not auth().valid(request.cookies.get(cookie)):
                 return JSONResponse({"detail": "This device is locked."}, status_code=401)
         return await call_next(request)
@@ -323,6 +333,23 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
     @app.get("/api/events")
     def events(after: int = 0, limit: int = 200):
         return {"events": dev().journal.events(after, limit)}
+
+    # -- peers (other devices on the local network) -------------------------
+
+    @app.get("/api/peer/manifest")
+    def peer_manifest():
+        return dev().peers.manifest()
+
+    @app.post("/api/peer/memories")
+    def peer_memories(body: PeerIdsBody):
+        return dev().peers.records(body.ids)
+
+    @app.post("/api/peers/exchange")
+    def peers_exchange():
+        d = dev()
+        if not d.peers.enabled:
+            raise HTTPException(409, "No peers are configured on this device (FIELDMIND_PEERS and FIELDMIND_PEER_TOKEN).")
+        return {"peers": d.peers.exchange()}
 
     # -- cloud ------------------------------------------------------------
 

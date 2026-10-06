@@ -13,7 +13,8 @@
 # A device's only route to the cloud is the "uplink" network, so its link can be cut for real:
 #   docker network disconnect fieldmind_uplink fieldmind-edge-a
 #   docker network connect    fieldmind_uplink fieldmind-edge-a
-# The dashboard stays reachable through the "console" network.
+# The dashboard stays reachable through the "console" network, and so do the other
+# devices: with the uplink cut, edge-a and edge-b still exchange shareable notes.
 
 x-device: &device
   build: .
@@ -26,6 +27,8 @@ x-device-env: &device-env
   FIELDMIND_CLOUD_URL: http://qdrant:6333
   FIELDMIND_COLLECTION: ${FIELDMIND_COLLECTION:-fleet_memory}
   FIELDMIND_PIN: ${FIELDMIND_PIN:-2468}
+  # Devices on the "console" network find each other when the uplink is cut.
+  FIELDMIND_PEER_TOKEN: ${FIELDMIND_PEER_TOKEN:-fleet-demo}
   # Containers have no language model; answers are composed from the notes.
   FIELDMIND_OLLAMA_MODEL: ""
 
@@ -49,6 +52,7 @@ services:
       <<: *device-env
       FIELDMIND_DEVICE: edge-a
       FIELDMIND_AUTHOR: technician-a
+      FIELDMIND_PEERS: http://edge-b:7860
     ports:
       - "${EDGE_A_PORT:-8001}:7860"
     volumes:
@@ -72,6 +76,7 @@ services:
       <<: *device-env
       FIELDMIND_DEVICE: edge-b
       FIELDMIND_AUTHOR: technician-b
+      FIELDMIND_PEERS: http://edge-a:7860
     ports:
       - "${EDGE_B_PORT:-8002}:7860"
     volumes:
