@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FieldMind deck</title>
+<!-- Source of docs/FieldMind-Compilers.pdf. To regenerate after a change:
+     chrome --headless=new --no-pdf-header-footer --print-to-pdf=FieldMind-Compilers.pdf deck.html -->
+<style>
+  @page { size: 13.333in 7.5in; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #0b1020; }
+  body { font-family: "Inter", "SF Pro Text", "Segoe UI", system-ui, -apple-system, sans-serif; color: #e6ebf5; -webkit-font-smoothing: antialiased; }
+  .slide { position: relative; width: 13.333in; height: 7.5in; padding: .7in .75in .6in; overflow: hidden; page-break-after: always; break-after: page;
+    background: radial-gradient(900px 500px at 8% -10%, rgba(79,140,255,.20), transparent 60%), radial-gradient(800px 500px at 100% 0%, rgba(103,212,251,.12), transparent 55%), #0b1020; }
+  .slide:last-child { page-break-after: auto; }
+  .eyebrow { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; letter-spacing: .14em; color: #67d4fb; text-transform: uppercase; }
+  h1 { font-size: 40px; font-weight: 750; letter-spacing: -.025em; margin: .12in 0 0; line-height: 1.1; }
+  h2 { font-size: 34px; font-weight: 720; letter-spacing: -.02em; margin: 0 0 .32in; line-height: 1.15; }
+  .num { position: absolute; right: .75in; bottom: .5in; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #6b778c; }
+  .foot { position: absolute; left: .75in; bottom: .5in; font-size: 12.5px; color: #97a3ba; }
+  .lead { font-size: 22px; color: #bcc6d9; line-height: 1.45; max-width: 8.4in; margin-top: .3in; }
+  .mark { width: 2.2in; height: 2.2in; position: absolute; right: 1.1in; top: 1.9in; border-radius: 28%; background: linear-gradient(135deg, #5b96ff, #67d4fb); box-shadow: 0 30px 80px -20px rgba(91,150,255,.7); display: grid; place-items: center; }
+  .mark svg { width: 55%; height: 55%; color: #fff; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: .3in; }
+  .card { background: #121a2e; border: 1px solid rgba(148,163,184,.14); border-radius: 18px; padding: .32in .34in; box-shadow: 0 10px 30px -14px rgba(0,0,0,.6); }
+  .card .n { width: .5in; height: .5in; border-radius: 50%; background: linear-gradient(135deg, #5b96ff, #67d4fb); color: #061024; font-weight: 800; display: grid; place-items: center; font-size: 18px; margin-bottom: .22in; }
+  .card h3 { margin: 0 0 .08in; font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+  .card p { margin: 0; color: #97a3ba; font-size: 16px; line-height: 1.5; }
+  .split { display: grid; grid-template-columns: 4.4in 1fr; gap: .4in; align-items: start; }
+  .steps .step { display: grid; grid-template-columns: .45in 1fr; gap: .18in; margin-bottom: .3in; }
+  .steps .n { width: .42in; height: .42in; border-radius: 50%; background: linear-gradient(135deg, #5b96ff, #67d4fb); color: #061024; font-weight: 800; display: grid; place-items: center; font-size: 15px; }
+  .steps h3 { margin: 0 0 .04in; font-size: 20px; }
+  .steps p { margin: 0; color: #97a3ba; font-size: 15px; line-height: 1.45; }
+  .shot { border-radius: 16px; overflow: hidden; border: 1px solid rgba(148,163,184,.2); box-shadow: 0 30px 60px -24px rgba(0,0,0,.8); background: #121a2e; }
+  .shot img { display: block; width: 100%; height: auto; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 16.5px; background: #121a2e; border: 1px solid rgba(148,163,184,.14); border-radius: 16px; overflow: hidden; }
+  th { text-align: left; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #67d4fb; padding: .16in .28in; border-bottom: 1px solid rgba(148,163,184,.18); background: #16203a; }
+  td { padding: .15in .28in; border-bottom: 1px solid rgba(148,163,184,.1); color: #d6dde9; vertical-align: top; line-height: 1.4; }
+  tr:last-child td { border-bottom: 0; }
+  td.k { color: #97a3ba; width: 44%; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+  .ok { background: rgba(52,211,153,.16); color: #34d399; } .warn { background: rgba(251,191,36,.16); color: #fbbf24; } .pri { background: rgba(167,139,250,.2); color: #c4a4ff; } .cloud { background: rgba(96,165,250,.18); color: #7cb0ff; }
+  .arch { display: grid; grid-template-columns: 6.9in .9in 1fr; gap: .25in; align-items: stretch; }
+  .box { background: #121a2e; border: 1px solid rgba(148,163,184,.14); border-radius: 18px; padding: .28in; }
+  .box h4 { margin: 0 0 .2in; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: #67d4fb; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .16in; }
+  .mod { background: #0e1527; border: 1px solid rgba(148,163,184,.16); border-radius: 12px; padding: .16in .2in; }
+  .mod b { display: block; font-size: 15.5px; }
+  .mod span { color: #97a3ba; font-size: 13px; line-height: 1.35; display: block; margin-top: 2px; }
+  .arrows { display: grid; align-content: center; gap: .6in; text-align: center; color: #97a3ba; font-size: 12.5px; }
+  .arrows b { display: block; color: #e6ebf5; font-size: 14px; }
+  .arrows .a { font-size: 30px; line-height: 1; color: #5b96ff; }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: .25in; }
+  .metric { background: #121a2e; border: 1px solid rgba(148,163,184,.14); border-radius: 18px; padding: .3in .34in; }
+  .metric .v { font-size: 46px; font-weight: 800; letter-spacing: -.03em; background: linear-gradient(135deg, #5b96ff, #67d4fb); -webkit-background-clip: text; background-clip: text; color: transparent; line-height: 1.05; }
+  .metric .l { color: #97a3ba; font-size: 15.5px; margin-top: .1in; line-height: 1.4; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: .4in; }
+  ul.clean { list-style: none; margin: 0; padding: 0; }
+  ul.clean li { padding: .1in 0; border-bottom: 1px solid rgba(148,163,184,.12); font-size: 16.5px; color: #d6dde9; display: grid; grid-template-columns: .4in 1fr; gap: .14in; align-items: center; }
+  ul.clean li:last-child { border-bottom: 0; }
+  ul.clean .n { width: .36in; height: .36in; border-radius: 50%; background: linear-gradient(135deg, #5b96ff, #67d4fb); color: #061024; font-weight: 800; display: grid; place-items: center; font-size: 13px; }
+  .note { font-size: 15.5px; color: #97a3ba; margin-top: .3in; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<section class="slide">
+  <div class="eyebrow">Problem statement 03 · Qdrant Edge</div>
+  <h1 style="font-size:84px; margin-top:.9in">FieldMind</h1>
+  <p class="lead">Memory for field technicians that works with no network, knows what it is allowed to share, and syncs with the fleet whenever a link exists.</p>
+  <div class="mark"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M16 3 4 9.5v13L16 29l12-6.5v-13z"/><circle cx="16" cy="16" r="4" fill="currentColor" stroke="none"/></svg></div>
+  <div class="foot"><b style="color:#e6ebf5">Team Compilers</b> &nbsp;·&nbsp; github.com/yabhinav1/fieldmind</div>
+</section>
+
+<section class="slide">
+  <h2>The most useful field knowledge is created where the network is worst</h2>
+  <div class="cards">
+    <div class="card"><div class="n">1</div><h3>No signal</h3><p>Plant floors, basements and remote sites drop the connection for hours. The work does not stop.</p></div>
+    <div class="card"><div class="n">2</div><h3>Mixed notes</h3><p>One note can hold a fault the whole fleet needs and a colleague's name that must never leave the device.</p></div>
+    <div class="card"><div class="n">3</div><h3>Drift</h3><p>Devices that work apart come back with different versions of the truth, and someone's edit gets lost.</p></div>
+  </div>
+  <p class="note">FieldMind is one process on the device: Qdrant Edge for memory, small ONNX models for meaning, names, reranking and photos, SQLite for what is waiting, and a dashboard a technician can use with gloves on.</p>
+  <div class="num">02</div>
+</section>
+
+<section class="slide">
+  <h2>The device that keeps working</h2>
+  <div class="split">
+    <div class="steps">
+      <div class="step"><div class="n">1</div><div><h3>Record</h3><p>Write, dictate or photograph what you saw. The device shows what it will share before you save, and learns from your overrides.</p></div></div>
+      <div class="step"><div class="n">2</div><div><h3>Find</h3><p>Hybrid search over your notes, your photos and headquarters manuals in about a millisecond. A cross-encoder rereads the best candidates.</p></div></div>
+      <div class="step"><div class="n">3</div><div><h3>Ask</h3><p>A cited answer written on the device. Every number, asset and verdict is checked against the note it cites. No cloud call.</p></div></div>
+    </div>
+    <div class="shot"><img src="img/offline-work.png" alt="The dashboard working offline"></div>
+  </div>
+  <div class="num">03</div>
+</section>
+
+<section class="slide">
+  <h2>One device process, one cloud collection</h2>
+  <div class="arch">
+    <div class="box"><h4>Edge device</h4>
+      <div class="grid2">
+        <div class="mod"><b>Local shard</b><span>Written here, private too. Sealed on disk with the device key.</span></div>
+        <div class="mod"><b>Replica shard</b><span>Cloud knowledge, or what nearby devices shared when the cloud was gone.</span></div>
+        <div class="mod"><b>Policy engine</b><span>Decides what may leave. Remembers the person's overrides as vectors, never text.</span></div>
+        <div class="mod"><b>Embeddings</b><span>bge-small (or multilingual) and BM25; MiniLM reranker; CLIP for photos.</span></div>
+        <div class="mod"><b>Journal</b><span>Outbox, conflicts, sealed activity. Bounded, survives restarts.</span></div>
+        <div class="mod"><b>Answer model</b><span>llama3.2 3B, optional, with a source check on every answer.</span></div>
+      </div>
+    </div>
+    <div class="arrows">
+      <div><b>Push</b><div class="a">→</div>compare and swap, payload-only when the text is unchanged</div>
+      <div><b>Pull</b><div class="a">←</div>diff, or one snapshot when far behind</div>
+    </div>
+    <div class="box"><h4>Qdrant Server</h4>
+      <p style="margin:0;color:#d6dde9;font-size:16px;line-height:1.6">Shared notes<br>Masked notes<br>Headquarters manuals<br>Photo thumbnails</p>
+      <p style="margin:.4in 0 0;color:#97a3ba;font-size:14px;line-height:1.5">Other devices sync here too, and with each other over the local network when it is unreachable.</p>
+    </div>
+  </div>
+  <div class="num">04</div>
+</section>
+
+<section class="slide">
+  <h2>The device decides what leaves</h2>
+  <table>
+    <tr><th>What the technician wrote</th><th>What happens</th></tr>
+    <tr><td class="k">Pump P-102 bearing vibration high at 7.2 mm/s</td><td><span class="pill ok">Shared</span></td></tr>
+    <tr><td class="k">Smell of gas near compressor K-4</td><td><span class="pill ok">Shared</span> &nbsp;<span class="pill warn">Urgent, sent first</span></td></tr>
+    <tr><td class="k">Suresh and Priya replaced the coupling, call 9876543210</td><td><span class="pill cloud">Shared, names and number masked</span></td></tr>
+    <tr><td class="k">Technician Ravi Kumar reported chest pain</td><td><span class="pill pri">Private, stays on the device</span></td></tr>
+    <tr><td class="k">SCADA panel login password is …</td><td><span class="pill pri">Private, cannot be overridden</span></td></tr>
+    <tr><td class="k">Operator slipped on oil near P-102, no injury</td><td><span class="pill ok">Shared</span> &nbsp;<span class="pill warn">Flagged: reads as two kinds</span></td></tr>
+  </table>
+  <p class="note">About 20 ms on the device: a name recognition model, pattern detectors for credentials, contacts, identity numbers, vehicles, badges and addresses, and a semantic classifier. Vectors for a masked note are computed from the masked text. Override a decision and notes like it follow your choice from then on.</p>
+  <div class="num">05</div>
+</section>
+
+<section class="slide">
+  <h2>When two devices disagree</h2>
+  <div class="split">
+    <div class="steps">
+      <div class="step"><div class="n">1</div><div><h3>Nothing is overwritten</h3><p>An upload lands only if the cloud is still at the revision the device last saw, confirmed by a per-write id. An edit made mid-upload is rebased, not lost.</p></div></div>
+      <div class="step"><div class="n">2</div><div><h3>Most edits merge</h3><p>Changes to different fields combine automatically, field by field.</p></div></div>
+      <div class="step"><div class="n">3</div><div><h3>A person settles the rest</h3><p>Keep mine, accept theirs, keep both or combine. Even while offline. One click stages a conflict for the demo.</p></div></div>
+    </div>
+    <div class="shot"><img src="img/conflict.png" alt="A conflict held for a decision"></div>
+  </div>
+  <div class="num">06</div>
+</section>
+
+<section class="slide">
+  <h2>What Qdrant does for us</h2>
+  <table>
+    <tr><th>Qdrant feature</th><th>How FieldMind uses it</th></tr>
+    <tr><td class="k">Edge shards, in process</td><td>Three per device: local notes, a cloud replica, and photos with a CLIP vector each</td></tr>
+    <tr><td class="k">Built-in BM25 with IDF</td><td>Keyword half of hybrid search, with no server</td></tr>
+    <tr><td class="k">Dense vectors and filters</td><td>Meaning search narrowed by asset, scope and status; photos found by what they show</td></tr>
+    <tr><td class="k">Shard snapshots</td><td>A device far behind restores its replica from one file</td></tr>
+    <tr><td class="k">Conditional upsert and payload overwrite</td><td>Compare and swap, so devices never clobber each other; payload-only patches skip the vectors</td></tr>
+    <tr><td class="k">One schema on both sides</td><td>The same dense and sparse vectors on edge and server, versioned payloads</td></tr>
+  </table>
+  <p class="note">qdrant-edge-py 0.8.0 with Qdrant Server 1.19.2, pinned and tested in CI.</p>
+  <div class="num">07</div>
+</section>
+
+<section class="slide">
+  <h2>Measured, not estimated</h2>
+  <div class="metrics">
+    <div class="metric"><div class="v">1 ms</div><div class="l">hybrid search across both shards</div></div>
+    <div class="metric"><div class="v">0</div><div class="l">network calls to search, answer, or find a photo</div></div>
+    <div class="metric"><div class="v">20 ms</div><div class="l">to decide what may leave the device</div></div>
+    <div class="metric"><div class="v">1–3 s</div><div class="l">for a cited answer from a 3B model</div></div>
+    <div class="metric"><div class="v">106</div><div class="l">automated tests on every push: two devices, a real Qdrant Server, a real browser</div></div>
+    <div class="metric"><div class="v">30</div><div class="l">checks in the live end-to-end run</div></div>
+  </div>
+  <p class="note">Ryzen 7 7435HS laptop, RTX 3050 4 GB. Also verified on Linux through a real network disconnect, and on arm64.</p>
+  <div class="num">08</div>
+</section>
+
+<section class="slide">
+  <h2>Five moments in the demo</h2>
+  <div class="two">
+    <ul class="clean">
+      <li><span class="n">1</span>Switch the network off and keep working</li>
+      <li><span class="n">2</span>Ask a question, get a cited answer</li>
+      <li><span class="n">3</span>Watch names get masked before upload</li>
+      <li><span class="n">4</span>Reconnect: urgent notes go first</li>
+      <li><span class="n">5</span>Two devices disagree, a person decides</li>
+    </ul>
+    <div>
+      <div class="box" style="margin-bottom:.25in"><h4>Also in the box</h4>
+        <p style="margin:0;color:#d6dde9;font-size:15.5px;line-height:1.65">Private text sealed on disk · First PIN claimed with a console code · Devices learn from each other when the cloud is gone · Photos searchable by what they show · Encrypted backup to a replacement device · Shift report · Installable on a phone, dictation included · /healthz and /metrics</p>
+      </div>
+      <div class="box"><h4>Next</h4>
+        <p style="margin:0;color:#d6dde9;font-size:15.5px;line-height:1.65">TLS for remote dashboards · Faces and name plates in photos · Photos between peers</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><b style="color:#e6ebf5">Team Compilers</b> &nbsp;·&nbsp; github.com/yabhinav1/fieldmind</div>
+  <div class="num">09</div>
+</section>
+
+</body>
+</html>

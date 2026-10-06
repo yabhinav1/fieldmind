@@ -21,14 +21,14 @@ If you only remember one sentence: *"A technician's most useful knowledge is cre
 
 | They asked | We do |
 |---|---|
-| Searchable semantic memory on an edge device | Two Qdrant Edge shards inside one Python process. No database server on the device. |
-| Low-latency vector and hybrid search without network | Dense vectors (bge-small model, ONNX, runs on CPU) plus Qdrant Edge's built-in BM25 keyword search. About 1 ms per search. |
-| Dynamically decide what stays local and what syncs | A policy engine classifies every note: **private** (stays), **shared**, or **shared with masking** (names, phone numbers, emails removed from the cloud copy; original stays on device). Credentials can never be shared. |
-| Intermittent connectivity, keep operating offline | Every change goes into a durable "outbox" (SQLite) first. It survives restarts and replays when the link returns, urgent notes first. |
+| Searchable semantic memory on an edge device | Two Qdrant Edge shards inside one Python process (a third for photos). No database server on the device. Private text is sealed on disk with a device key. |
+| Low-latency vector and hybrid search without network | Dense vectors (bge-small model, ONNX, runs on CPU; a multilingual option exists) plus Qdrant Edge's built-in BM25 keyword search. About 1 ms per search. A 23 MB cross-encoder reranks for answers. |
+| Dynamically decide what stays local and what syncs | A policy engine classifies every note: **private** (stays), **shared**, or **shared with masking** (names, phone numbers, emails, vehicles, badges, addresses removed from the cloud copy; original stays on device). Credentials can never be shared. The person can override, and the device learns from those overrides. |
+| Intermittent connectivity, keep operating offline | Every change goes into a durable "outbox" (SQLite) first. It survives restarts and replays when the link returns, urgent notes first. A change that keeps failing is set aside so it never blocks the queue. With the cloud gone, devices on the same network exchange notes directly. |
 | Sync between edge devices and Qdrant Server | Uploads are compare-and-swap writes (never overwrite blindly). Small downloads use a diff of ids and revisions. A device that is far behind restores its whole replica from a Qdrant Server **shard snapshot** in one download. |
 | Evolving memory, updates, conflicting information | A follow-up note replaces the earlier belief ("bearing replaced" supersedes "bearing vibration high"). Concurrent edits to different fields merge automatically. A real clash is held for a person to decide, with both versions side by side. |
-| User-facing interface for memory, search, sync status, activity | A dashboard with Work, Memory, Sync and Cloud tabs, a live activity log, and a "Demo guide" button. Locked behind a PIN. |
-| A meaningful edge-to-cloud AI workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes flow back up filtered by the policy, and a small language model on the device answers questions using both, with citations. |
+| User-facing interface for memory, search, sync status, activity | A dashboard with Work, Memory, Sync and Cloud tabs, a live activity log, and a "Demo guide" button. Locked behind a PIN (the first visitor chooses it with a setup code from the console). Installable on a phone; dictation; photo capture; shift report; encrypted backup. |
+| A meaningful edge-to-cloud AI workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes and photos flow back up filtered by the policy, and a small language model on the device answers questions using both, with citations checked against the sources. |
 
 Full mapping with code files and test names: `docs/requirements.md`.
 
@@ -124,7 +124,7 @@ Say the words in italics, or your own version of them.
    *"This is what Qdrant Server actually holds. No health note, no password, names masked."*
 8. **Fleet learning.** On edge-b search `pump bearing vibration`.
    *"The second device now knows what the first one saw."*
-9. **Conflict.** Both devices: Network off. Open the same shared note on each (for example the V-17 valve note) and change the text differently. Turn edge-a on, then edge-b. On edge-b open the Sync tab.
+9. **Conflict.** Easiest: on edge-b open the Demo guide and click **Stage a conflict**. By hand: both devices Network off, open the same shared note on each (for example the V-17 valve note) and change the text differently, turn edge-a on, then edge-b. On edge-b open the Sync tab.
    *"Two technicians changed the same note while offline. The second to reconnect does not overwrite the first. It shows both versions and a person decides."* Click **Keep mine**.
 10. **Evolving memory.** On edge-b record `Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal`. On edge-a ask `what is the condition of pump P-102`.
     *"The follow-up replaced the earlier belief. The answer reflects the new state."*
