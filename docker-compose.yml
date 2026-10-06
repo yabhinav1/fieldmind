@@ -31,7 +31,7 @@ x-device-env: &device-env
 
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.19.2
     container_name: fieldmind-cloud
     ports:
       - "6333:6333"

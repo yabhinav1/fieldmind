@@ -10,6 +10,7 @@ import uuid
 from collections import deque
 from typing import Any
 
+from . import schema
 from .config import DENSE, SPARSE, Settings
 from .embedder import Embedder
 from .journal import Journal
@@ -46,7 +47,7 @@ PROTECTED_KINDS = ("reference",)
 CLOUD_FIELDS = (
     "text", "kind", "asset", "tags", "site", "scope", "category", "priority",
     "device_id", "origin_device", "author", "created_at", "updated_at", "rev",
-    "status", "supersedes", "superseded_by", "relation", "redacted",
+    "status", "supersedes", "superseded_by", "relation", "redacted", "schema",
 )
 # Fields a person can change, and therefore the ones that can conflict.
 CONTENT_FIELDS = ("text", "kind", "asset", "tags", "status", "supersedes", "superseded_by", "relation")
@@ -210,6 +211,7 @@ class MemoryService:
             self.policy.learn(text, decision.scope)
 
         payload = {
+            "schema": schema.CURRENT,
             "text": text,
             "kind": kind,
             "asset": asset,
@@ -505,10 +507,11 @@ class MemoryService:
         return [self.local, self.replica]
 
     def _present(self, record: dict) -> dict:
-        payload = record["payload"]
+        payload = schema.upgrade(record["payload"])
         shard = record.get("shard", "local")
         return {
             "id": record["id"],
+            "schema": payload["schema"],
             "text": payload.get("text", ""),
             "shared_text": payload.get("shared_text"),
             "redacted": bool(payload.get("redacted")),

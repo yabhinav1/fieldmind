@@ -159,6 +159,19 @@ class Cloud:
         stored = self.get(memory_id)
         return bool(stored) and stored["payload"].get("write_id") == write_id
 
+    def patch(self, memory_id: str, payload: dict, expect_rev: int) -> bool:
+        """Compare-and-swap replacement of the payload alone, leaving the vectors in place.
+
+        Used when an edit changed tags, kind or status but not the text, so the
+        vectors the cloud already holds are still right and need not travel again.
+        """
+        guard = m.Filter(must=[m.HasIdCondition(has_id=[memory_id]),
+                               m.FieldCondition(key="rev", match=m.MatchValue(value=expect_rev))])
+        write_id = secrets.token_hex(8)
+        self.client.overwrite_payload(self.collection, {**payload, "write_id": write_id}, points=guard, wait=True)
+        stored = self.get(memory_id)
+        return bool(stored) and stored["payload"].get("write_id") == write_id
+
     def tombstone(self, memory_id: str, payload: dict, expect_rev: int | None) -> bool:
         return self.write(memory_id, TOMBSTONE_VECTOR, None, payload, expect_rev)
 

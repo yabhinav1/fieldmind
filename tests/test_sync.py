@@ -1,5 +1,8 @@
 """End-to-end behaviour of two devices and one cloud."""
 
+import time
+import uuid
+
 from fieldmind.demo import seed_cloud
 
 FAULT = "Pump P-102 bearing vibration high at 7.2 mm/s, recommend replacement"
@@ -118,6 +121,41 @@ def test_duplicates_are_not_stored_twice(fleet):
     again = a.service.capture("Pump P-102 bearing vibration high at 7.2 mm/s, recommend replacing")
     assert again["created"] is False and again["duplicate_of"]["id"] == first
     assert a.service.stats()["local"] == 1
+
+
+def test_an_edit_that_keeps_the_text_sends_no_vectors(fleet):
+    a, b = fleet("edge-a"), fleet("edge-b")
+    memory_id = a.service.capture(FAULT)["memory"]["id"]
+    full = a.sync.run_once()["bytes_up"]
+    b.sync.run_once()
+
+    a.service.edit(memory_id, tags=["bearing", "p-series"])
+    patched = a.sync.run_once()
+    assert patched["pushed"] == 1 and patched["bytes_up"] < 4 * 384 < full, "the payload went up without the vectors"
+    assert a.service.get(memory_id)["sync_state"] == "synced"
+
+    b.sync.run_once()
+    got = b.service.get(memory_id)
+    assert got["tags"] == ["bearing", "p-series"] and got["text"] == FAULT
+    assert b.service.search("pump bearing vibration")["results"][0]["id"] == memory_id, "the cloud vectors still match"
+
+
+def test_memories_from_a_newer_fieldmind_are_held_back(fleet, embedder):
+    a = fleet("edge-a")
+    a.cloud.ensure()
+    now = time.time()
+    for text, version in (("Chiller CH-1 refrigerant low", 99), ("Legacy note about valve V-17", None)):
+        dense, sparse = embedder.document(text)
+        payload = {"text": text, "site": "plant-1", "rev": 1, "status": "active", "device_id": "edge-z", "updated_at": now}
+        if version:
+            payload["schema"] = version
+        a.cloud.write(str(uuid.uuid4()), dense, sparse, payload, None)
+
+    assert a.sync.run_once()["pulled"] == 1
+    texts = [m["text"] for m in a.service.list(source="replica")]
+    assert texts == ["Legacy note about valve V-17"]
+    assert a.service.list(source="replica")[0]["schema"] == 1, "an old payload is read at the current version"
+    assert any("newer FieldMind" in e["message"] for e in a.journal.events())
 
 
 def test_edits_to_different_fields_merge_automatically(fleet):

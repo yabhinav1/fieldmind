@@ -18,6 +18,7 @@ import time
 
 from qdrant_edge import FieldCondition, Filter, MatchAny, MatchValue, SparseVector
 
+from . import schema
 from .cloud import Cloud
 from .journal import Journal
 from .policy import PRIVATE, REDACTED
@@ -49,6 +50,11 @@ def three_way(base: dict | None, mine: dict, theirs: dict) -> tuple[dict, list[s
 
 def same_content(a: dict, b: dict) -> bool:
     return all(a.get(f) == b.get(f) for f in CONTENT_FIELDS)
+
+
+def is_masked(payload: dict) -> bool:
+    """Whether a cloud payload was uploaded masked; masked and plain text embed differently."""
+    return bool(payload.get("redacted"))
 
 
 # What the pull step needs to know about every local memory to compare it with the cloud.
@@ -275,17 +281,26 @@ class SyncEngine:
             self.journal.log("merge", f"Merged edits from {theirs.get('device_id')} automatically: {_clip(mine['text'])}",
                              level="good", memory_id=memory_id, fields=sorted(merged))
 
-        if payload.get("scope") == REDACTED or mine["text"] != payload.get("text"):
-            # Never upload vectors computed from text the cloud is not allowed to see.
-            dense, sparse = self.service.embedder.document(mine["text"])
+        # The cloud already holds the right vectors when the text it has is the text
+        # being sent; then only the payload travels (tags, kind, status, ...).
+        payload_only = (theirs is not None and expect == theirs.get("rev") and is_masked(theirs) == is_masked(mine)
+                        and theirs.get("text") == mine["text"] and theirs.get("status") != "deleted")
+        if payload_only:
+            stored = self.cloud.patch(memory_id, mine, expect)
+            sparse = None
         else:
-            dense, sparse = record["dense"], record["sparse"]
+            if payload.get("scope") == REDACTED or mine["text"] != payload.get("text"):
+                # Never upload vectors computed from text the cloud is not allowed to see.
+                dense, sparse = self.service.embedder.document(mine["text"])
+            else:
+                dense, sparse = record["dense"], record["sparse"]
+            stored = self.cloud.write(memory_id, dense, sparse, mine, expect)
 
-        if not self.cloud.write(memory_id, dense, sparse, mine, expect):
+        if not stored:
             self.journal.defer(op["seq"], "The cloud copy changed during upload; retrying.")
             return
         stats["pushed"] += 1
-        stats["bytes_up"] += _size(mine, sparse)
+        stats["bytes_up"] += _size(mine, sparse, dense=not payload_only)
         self.journal.close_conflicts_for(memory_id, "superseded")
 
         with self.service.lock:
@@ -440,11 +455,18 @@ class SyncEngine:
                             level="warn", memory_id=memory_id)
 
         ids = list(wanted)
+        skipped_newer = 0
         for start in range(0, len(ids), 64):
             for record in self.cloud.get_many(ids[start:start + 64], with_vectors=True):
                 target = wanted[record["id"]]
                 cloud_payload = record["payload"]
                 stats["bytes_down"] += _size(cloud_payload, record.get("sparse"))
+                if schema.too_new(cloud_payload):
+                    # Written by a newer FieldMind than this device runs. Leave it
+                    # until this device is updated rather than merge fields blindly.
+                    skipped_newer += 1
+                    continue
+                schema.upgrade(cloud_payload)
                 stats["pulled"] += 1
                 if target == "replica":
                     payload = {**cloud_payload, "sync_state": "replica", "base_rev": cloud_payload.get("rev", 0)}
@@ -464,6 +486,10 @@ class SyncEngine:
                     service.local.upsert(record["id"], dense, sparse, payload)
                 journal.log("sync", f"Updated by {cloud_payload.get('device_id')}: {_clip(payload['text'])}",
                             memory_id=record["id"])
+        if skipped_newer and not journal.get("warned_newer_schema"):
+            journal.set("warned_newer_schema", True)
+            journal.log("sync", f"{skipped_newer} cloud memories were written by a newer FieldMind and are held back "
+                                "until this device is updated.", level="warn")
 
     # -- conflicts --------------------------------------------------------
 
