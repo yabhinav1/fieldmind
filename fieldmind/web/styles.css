@@ -565,3 +565,20 @@ details.under > #engine, details.under > #runs { margin-top: 12px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---- icons and guide motion ---- */
+
+.icon { width: 16px; height: 16px; flex: none; opacity: .85; }
+.tab .icon { margin-right: -2px; }
+.tab.active .icon { color: var(--accent); opacity: 1; }
+.stat-icon { position: absolute; top: 14px; right: 16px; width: 22px; height: 22px; color: var(--accent); opacity: .55; }
+.stat:nth-child(2) .stat-icon { color: var(--private); }
+.stat:nth-child(3) .stat-icon { color: var(--warn); }
+.stat:nth-child(4) .stat-icon { color: var(--bad); }
+.stat-label { padding-right: 32px; }
+
+.guide-step.reveal { animation: step-in .45s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 60ms); }
+@keyframes step-in { from { opacity: 0; transform: translateX(14px); } }
+.guide-step.just-done .guide-mark { animation: tick .55s cubic-bezier(.2,.9,.3,1.4); }
+@keyframes tick { 0% { transform: scale(.4); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
+.guide-step.just-done { animation: flash 1.6s ease-out; border-radius: 10px; }

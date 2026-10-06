@@ -34,6 +34,15 @@ const RELATION = {
 };
 const PRIORITY = ["Low", "Normal", "Urgent"];
 
+// Inline SVG so the dashboard still loads with no external assets.
+const ICONS = {
+  layers: `<svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/><path d="m3 18 9 5 9-5"/></svg>`,
+  lock: `<svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
+  sync: `<svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M3 21v-5h5"/><path d="M21 3v5h-5"/></svg>`,
+  merge: `<svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9"/><path d="M6 7.5c0 4.5 9.5 2 9.5 4.5"/></svg>`
+};
+
+
 // ---------------------------------------------------------------- helpers
 
 function seen(flag, value) {
@@ -232,13 +241,13 @@ function renderStatus(s) {
 
   const waiting = outbox.pending || 0;
   const stats = [
-    ["Memories on this device", memory.local + memory.replica, "", `${memory.local} written here · ${memory.replica} from the cloud`],
-    ["Kept private", memory.private, "", "never leave the device"],
-    ["Waiting to sync", waiting, waiting ? "attention" : "", link.online ? "sending now" : "sent when the link returns"],
-    ["Need a decision", s.open_conflicts, s.open_conflicts ? "alert" : "", "conflicts between devices"],
+    ["Memories on this device", memory.local + memory.replica, "", `${memory.local} written here · ${memory.replica} from the cloud`, "layers"],
+    ["Kept private", memory.private, "", "never leave the device", "lock"],
+    ["Waiting to sync", waiting, waiting ? "attention" : "", link.online ? "sending now" : "sent when the link returns", "sync"],
+    ["Need a decision", s.open_conflicts, s.open_conflicts ? "alert" : "", "conflicts between devices", "merge"],
   ];
-  $("stats").innerHTML = stats.map(([label, value, cls, sub]) => `
-    <div class="stat ${cls}"><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${esc(sub)}</div></div>`).join("");
+  $("stats").innerHTML = stats.map(([label, value, cls, sub, icon]) => `
+    <div class="stat ${cls}">${ICONS[icon]}<div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${esc(sub)}</div></div>`).join("");
   $("start-here").hidden = memory.local + memory.replica > 0;
   document.querySelector(".samples").hidden = !$("start-here").hidden;
 
@@ -613,13 +622,19 @@ const GUIDE = [
     done: () => seen("snapshot") },
 ];
 
-function renderGuide() {
+function renderGuide(force = false) {
   const s = state.status;
   if (!s) return;
   const done = GUIDE.map((step) => Boolean(step.done(s)));
+  const key = done.join("");
+  // Re-render only when something changed, so the reveal and the tick animations
+  // play once rather than on every poll.
+  if (!force && key === state.guideKey) return;
+  const before = state.guideKey || "";
+  state.guideKey = key;
   const next = done.indexOf(false);
   const steps = GUIDE.map((step, i) => `
-    <div class="guide-step ${done[i] ? "done" : i === next ? "next" : ""}">
+    <div class="guide-step ${done[i] ? "done" : i === next ? "next" : ""} ${done[i] && before[i] === "0" ? "just-done" : ""} ${force ? "reveal" : ""}" style="--i:${i}">
       <span class="guide-mark">${done[i] ? "✓" : i + 1}</span>
       <div><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p>
         ${step.action && !done[i] ? `<button class="btn small" data-guide="${step.action[1]}">${esc(step.action[0])}</button>` : ""}
@@ -633,7 +648,7 @@ function renderGuide() {
 
 function openGuide() {
   state.guideOpen = true;
-  renderGuide();
+  renderGuide(true);
   $("drawer").hidden = false;
 }
 
