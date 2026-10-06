@@ -16,7 +16,7 @@ Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 |---|---|
 | 2 minutes | Read the [deck (PDF)](docs/FieldMind-Compilers.pdf) and the walkthrough above. |
 | 5 minutes | Read [how each line of the problem statement is met](docs/requirements.md), with the code and the test that proves it. |
-| 10 minutes | Run it: `docker compose --profile demo up --build`, open http://localhost:8001 and http://localhost:8002 (PIN `2468`), and click **Demo guide** in the top right. Or [host it online for free](docs/host-for-free.md). |
+| 10 minutes | Run it: `docker compose --profile demo up --build`, open http://localhost:8001 and http://localhost:8002 (PIN `2468`), and click **Demo guide** in the top right. Or host it online for free on [Hugging Face Spaces](docs/host-for-free.md) or a [Pterodactyl panel such as HidenCloud](deploy/pterodactyl/README.md). |
 | A question | [Pitch notes](docs/pitch.md) answer the ones we expect: why two shards, how snapshots are used, what stops devices overwriting each other. |
 
 ## What it does
