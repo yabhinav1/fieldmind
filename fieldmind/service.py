@@ -15,6 +15,7 @@ from .config import DENSE, SPARSE, Settings
 from .embedder import Embedder
 from .journal import Journal
 from .llm import LocalModel
+from .photos import PhotoStore, image_strength
 from .policy import PRIVATE, REDACTED, SHARED, PolicyEngine, find_asset
 from .reranker import Reranker
 from .store import Shard, build_filter
@@ -38,6 +39,8 @@ ANSWER_AT = 0.20
 # score. The fused score keeps keyword-exact matches from being buried.
 RERANK_DEPTH = 20
 RERANK_WEIGHT = 0.6
+# A photo that looks like what the question describes adds to its memory's score.
+IMAGE_WEIGHT = 0.4
 
 # Reference material is published centrally. A field note can relate to it but
 # never replaces it.
@@ -73,7 +76,8 @@ def cloud_view(payload: dict) -> dict:
 
 class MemoryService:
     def __init__(self, settings: Settings, embedder: Embedder, local: Shard, replica: Shard,
-                 journal: Journal, policy: PolicyEngine, reranker: Reranker | None = None):
+                 journal: Journal, policy: PolicyEngine, reranker: Reranker | None = None,
+                 photos: PhotoStore | None = None):
         self.settings = settings
         self.embedder = embedder
         self.local = local
@@ -81,6 +85,7 @@ class MemoryService:
         self.journal = journal
         self.policy = policy
         self.reranker = reranker if reranker is not None and reranker.available else None
+        self.photos = photos
         self.llm = LocalModel(settings.ollama_url, settings.ollama_model)
         # Every change to the local shard and the outbox happens under this lock, so
         # a capture from the dashboard and a sync cycle never interleave half-way.
@@ -100,7 +105,10 @@ class MemoryService:
         record = self.find(memory_id)
         if not record:
             raise NotFound(memory_id)
-        return self._present(record)
+        out = self._present(record)
+        if self.photos:
+            out["photos"] = self.photos.for_memory(memory_id)
+        return out
 
     def history(self, memory_id: str) -> list[dict]:
         """The chain of memories this one replaced, newest first."""
@@ -140,6 +148,7 @@ class MemoryService:
             "conflict": count(self.local, sync_state="conflict"),
             "failed": count(self.local, sync_state="failed"),
             "superseded": count(self.local, status="superseded") + count(self.replica, status="superseded"),
+            "photos": self.photos.shard.count() if self.photos else 0,
         }
 
     # -- capture ----------------------------------------------------------
@@ -257,6 +266,40 @@ class MemoryService:
         self.local.flush()
         return {"created": True, "memory": self.get(memory_id), "decision": decision.to_dict(), "related": related}
 
+    # -- photos -----------------------------------------------------------
+
+    def attach_photo(self, data: bytes, caption: str, scope: str | None = None) -> dict:
+        """Save a photo with what it shows. The caption is captured as a memory and
+        decides the scope; the photo is attached and follows it. A caption that
+        repeats an existing note attaches the photo to that note instead."""
+        if not self.photos:
+            raise ValueError("Photos are turned off on this device (FIELDMIND_PHOTOS=1 turns them on).")
+        if not caption.strip():
+            raise ValueError("Say what the photo shows.")
+        with self.lock:
+            result = self.capture(caption, kind="photo", scope=scope)
+            memory = result["memory"] if result["created"] else result["duplicate_of"]
+            photo = self.photos.add(memory, data)
+            if photo["sync_state"] == "pending":
+                self.journal.enqueue(photo["id"], "photo", memory.get("priority", 1), 0, {"memory_id": memory["id"]})
+            self.journal.log("capture", f"Photo attached, {SCOPE_WORDS[memory['scope']]}: {_clip(memory['text'])}",
+                             memory_id=memory["id"], photo_id=photo["id"])
+            return {**result, "memory": self.get(memory["id"]), "photo": photo}
+
+    def _rescope_photos(self, memory_id: str, scope: str) -> None:
+        """A memory's scope changed, so its photos change with it: withdrawn from the
+        cloud when it turns private, queued for upload when it is shared again."""
+        if not self.photos:
+            return
+        for before, after in zip(self.photos.for_memory(memory_id), self.photos.rescope(memory_id, scope), strict=True):
+            if after["sync_state"] == "private":
+                if before["sync_state"] == "synced":
+                    self.journal.enqueue(after["id"], "photo_delete", 1, 0, {"memory_id": memory_id})
+                else:
+                    self.journal.cancel(after["id"])
+            elif after["sync_state"] == "pending":
+                self.journal.enqueue(after["id"], "photo", 1, 0, {"memory_id": memory_id})
+
     # -- change -----------------------------------------------------------
 
     def edit(self, memory_id: str, text: str | None = None, kind: str | None = None,
@@ -290,6 +333,12 @@ class MemoryService:
             else:
                 self.journal.cancel(memory_id)
             self.journal.close_conflicts_for(memory_id, "deleted")
+            if self.photos:
+                for photo in self.photos.remove_for(memory_id):
+                    if photo["sync_state"] in ("synced", "replica"):
+                        self.journal.enqueue(photo["id"], "photo_delete", 1, 0, {"memory_id": memory_id})
+                    else:
+                        self.journal.cancel(photo["id"])
             self.local.delete([memory_id])
             self.replica.delete([memory_id])
             self.local.flush()
@@ -357,6 +406,8 @@ class MemoryService:
         self.local.upsert(memory_id, dense, sparse, payload)
         if record["shard"] == "replica":
             self.replica.delete([memory_id])
+        if payload["scope"] != before_scope:
+            self._rescope_photos(memory_id, payload["scope"])
 
         self.journal.log("edit", f"{note or 'Changed'} {_clip(payload['text'])}", memory_id=memory_id,
                          fields=sorted(changed) + (["scope"] if payload["scope"] != before_scope else []),
@@ -393,7 +444,6 @@ class MemoryService:
                 dense_hits.extend(shard.nearest(dense_q, DENSE, depth, flt))
             if sparse_q is not None and sparse_q.indices:
                 sparse_hits.extend(shard.nearest(sparse_q, SPARSE, depth, flt))
-        t2 = time.perf_counter()
 
         merged: dict[str, dict] = {}
         for signal, hits in (("semantic", dense_hits), ("keyword", sparse_hits)):
@@ -402,9 +452,24 @@ class MemoryService:
                 entry["matched"][signal] = round(hit["score"], 4)
                 entry["strength"][signal] = round(_strength(signal, hit["score"]), 4)
 
-        weights = {"semantic": SEMANTIC_WEIGHT, "keyword": KEYWORD_WEIGHT}
+        # Photos that look like what the question describes count for their memory.
+        if self.photos and dense_q is not None and self.photos.available:
+            for photo in self.photos.search(query, depth):
+                memory_id = photo["memory_id"]
+                entry = merged.get(memory_id)
+                if entry is None:
+                    record = self.find(memory_id)
+                    if not record or not _passes(record["payload"], must, must_not):
+                        continue
+                    entry = merged[memory_id] = {"hit": record, "matched": {}, "strength": {}}
+                if photo["score"] > entry["matched"].get("image", -1):
+                    entry["matched"]["image"] = round(photo["score"], 4)
+                    entry["strength"]["image"] = round(image_strength(photo["score"]), 4)
+        t2 = time.perf_counter()
+
+        weights = {"semantic": SEMANTIC_WEIGHT, "keyword": KEYWORD_WEIGHT, "image": IMAGE_WEIGHT}
         if mode != "hybrid":
-            weights = {"semantic": 1.0, "keyword": 1.0}
+            weights = {"semantic": 1.0, "keyword": 1.0, "image": 1.0}
         results = []
         for entry in merged.values():
             score = sum(weights[s] * v for s, v in entry["strength"].items())
@@ -428,11 +493,17 @@ class MemoryService:
         self.search_ms.append((t3 - t0) * 1000)
         self.searches += 1
 
+        results = results[:limit]
+        if self.photos:
+            photos = self.photos.for_memories([r["id"] for r in results])
+            for result in results:
+                result["photos"] = photos.get(result["id"], [])
+
         return {
             "query": query,
             "mode": mode,
             "reranked": reranked,
-            "results": results[:limit],
+            "results": results,
             "candidates": len(results),
             "searched": {"local": self.local.count(), "replica": self.replica.count()},
             "timing_ms": {
@@ -546,6 +617,18 @@ def _strength(signal: str, score: float) -> float:
     if signal == "semantic":
         return min(1.0, max(0.0, (score - SEMANTIC_FLOOR) / (SEMANTIC_CEILING - SEMANTIC_FLOOR)))
     return score / (score + KEYWORD_HALF)
+
+
+def _passes(payload: dict, must: dict, must_not: dict | None) -> bool:
+    """Apply the same keyword filter the shards were given to a record found another way."""
+    for key, value in must.items():
+        if value is not None and value != "" and payload.get(key) != value:
+            return False
+    for key, value in (must_not or {}).items():
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        if payload.get(key) in values:
+            return False
+    return True
 
 
 def _clip(text: str, length: int = 70) -> str:

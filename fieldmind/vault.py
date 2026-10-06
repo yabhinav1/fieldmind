@@ -64,3 +64,17 @@ class Vault:
             return self._fernet.decrypt(text[len(MARK):].encode()).decode()
         except Exception:
             return "[sealed; wrong key]"
+
+    def seal_bytes(self, data: bytes) -> bytes:
+        return MARK.encode() + self._fernet.encrypt(data) if self.active else data
+
+    def unseal_bytes(self, data: bytes) -> bytes | None:
+        """The original bytes, or None when they are sealed and the key is missing or wrong."""
+        if not data.startswith(MARK.encode()):
+            return data
+        if not self.active:
+            return None
+        try:
+            return self._fernet.decrypt(data[len(MARK):])
+        except Exception:
+            return None

@@ -69,6 +69,10 @@ class Settings:
     # "Authorization: Bearer <token>" on it anyway.
     metrics_token: str | None = field(default_factory=lambda: os.environ.get("FIELDMIND_METRICS_TOKEN"))
 
+    # Photos as memories: a CLIP model pair (about 590 MB) makes photos searchable by
+    # text, and a third shard holds them. Off by default because of the download.
+    photos: bool = field(default_factory=lambda: _env("PHOTOS", "0") not in ("0", "false", "no", ""))
+
     # Rerank search candidates with a small cross-encoder (about 23 MB). Answers
     # always use it when it is loaded; search uses it on request.
     rerank: bool = field(default_factory=lambda: _env("RERANK", "1") not in ("0", "false", "no", ""))
@@ -89,6 +93,14 @@ class Settings:
     @property
     def replica_shard_dir(self) -> Path:
         return self.data_dir / "shard-replica"
+
+    @property
+    def media_shard_dir(self) -> Path:
+        return self.data_dir / "shard-media"
+
+    @property
+    def media_dir(self) -> Path:
+        return self.data_dir / "media"
 
     @property
     def journal_path(self) -> Path:

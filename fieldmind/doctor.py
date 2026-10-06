@@ -44,6 +44,21 @@ def _reranker_model(settings: Settings) -> bool:
     return all((settings.models_dir / "reranker" / name).exists() for name in FILES)
 
 
+def _vision_models(settings: Settings) -> bool:
+    try:
+        from fastembed import ImageEmbedding, TextEmbedding
+        from loguru import logger
+
+        from .vision import TEXT_MODEL, VISION_MODEL
+
+        logger.disable("fastembed")
+        ImageEmbedding(VISION_MODEL, cache_dir=str(settings.models_dir), local_files_only=True)
+        TextEmbedding(TEXT_MODEL, cache_dir=str(settings.models_dir), local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
 def run(settings: Settings) -> int:
     results = []
     print("FieldMind preflight\n")
@@ -77,6 +92,10 @@ def run(settings: Settings) -> int:
     reranker = _reranker_model(settings) or not settings.rerank
     results.append(_report(OK if reranker else WARN, "Reranking model",
                            "turned off" if not settings.rerank else "" if reranker else "will download about 23 MB on first start"))
+    vision = _vision_models(settings) or not settings.photos
+    results.append(_report(OK if vision else WARN, "Photo models (CLIP)",
+                           "turned off; FIELDMIND_PHOTOS=1 turns photos on" if not settings.photos
+                           else "" if vision else "will download about 590 MB on first start"))
 
     print("\nCloud")
     from .cloud import Cloud
@@ -117,7 +136,7 @@ def run(settings: Settings) -> int:
     if FAIL in results:
         print("Not ready. Fix the FAIL lines above.")
         return 1
-    offline_ready = embedding and names and reranker
+    offline_ready = embedding and names and reranker and vision
     print("Ready." + ("" if offline_ready else " Internet is needed once, to download the models.")
           + (" Some optional parts are off; see the warn lines." if WARN in results else ""))
     return 0

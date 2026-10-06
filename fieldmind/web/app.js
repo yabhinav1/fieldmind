@@ -186,9 +186,16 @@ function badges(m, options = {}) {
   return `<div class="badges">${out.join("")}</div>`;
 }
 
+function thumbs(photos, size = "") {
+  if (!photos || !photos.length) return "";
+  return `<div class="thumbs ${size}">${photos.map((p) =>
+    `<img src="${esc(p.url)}" alt="Photo attached to this note" loading="lazy" width="${p.width}" height="${p.height}">`).join("")}</div>`;
+}
+
 function memoryItem(m, extra = "") {
   return `<button class="item ${m.status === "superseded" ? "old" : ""}" data-open="${esc(m.id)}">
     <p class="item-text">${esc(m.text)}</p>
+    ${thumbs(m.photos)}
     ${extra}
     <div class="item-foot">${badges(m)}<span class="when">${ago(m.updated_at)}</span></div>
   </button>`;
@@ -242,10 +249,12 @@ function renderStatus(s) {
       <dt>Reranking</dt><dd>${esc(s.engine.reranker || "Off")}</dd>
       <dt>Learned choices</dt><dd>${s.engine.learned_examples || 0} from this device's overrides</dd>
       <dt>Answers</dt><dd>${esc(s.engine.answer_model || "Composed from notes")}</dd>
+      <dt>Photos</dt><dd>${s.engine.vision_model ? `${esc(s.engine.vision_model)} · ${s.memory.photos || 0} stored` : s.engine.photos ? "Vision model loading…" : "Off"}</dd>
       <dt>On disk</dt><dd>${s.engine.sealed ? "Private text and activity sealed with the device key" : "Not sealed"}</dd>
       <dt>Storage reserved</dt><dd>${bytes(disk)}</dd>
     </dl>`;
   $("rerank-label").hidden = !s.engine.reranker;
+  $("add-photo").hidden = !s.engine.photos;
   renderFilters();
   if (!link.online) seen("offline", true);
   if (state.guideOpen) renderGuide();
@@ -346,16 +355,43 @@ async function loadPreview() {
   if (choice) choice.onchange = () => { state.supersede = choice.checked; };
 }
 
+async function savePhoto(text) {
+  const form = new FormData();
+  form.append("file", state.photo, state.photo.name || "photo.jpg");
+  form.append("caption", text);
+  if ($("scope-override").value) form.append("scope", $("scope-override").value);
+  const response = await fetch("/api/photos", { method: "POST", body: form });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401) showLock();
+  if (!response.ok) throw new Error(data.detail || `Upload failed (${response.status})`);
+  return { ...data, created: true };
+}
+
+function setPhoto(file) {
+  state.photo = file || null;
+  const box = $("photo-preview");
+  if (!file) { box.hidden = true; box.innerHTML = ""; $("photo-file").value = ""; return; }
+  const url = URL.createObjectURL(file);
+  box.hidden = false;
+  box.innerHTML = `<img src="${url}" alt="Photo to attach"><div>
+    <div>${esc(file.name || "Photo")} · ${bytes(file.size)}</div>
+    <div class="hint">Position, time and camera details are removed before it is stored. Say what it shows in the note.</div>
+    <button class="link-btn" id="remove-photo">Remove</button></div>`;
+  $("remove-photo").onclick = () => setPhoto(null);
+  $("save-note").disabled = !$("note").value.trim();
+}
+
 async function saveNote(allowDuplicate = false) {
   const text = $("note").value.trim();
   if (!text) return;
-  const result = await attempt(() => api("/api/memories", {
+  const result = await attempt(() => state.photo ? savePhoto(text) : api("/api/memories", {
     method: "POST",
     body: { text, scope: $("scope-override").value || null, allow_duplicate: allowDuplicate,
       supersede: state.supersede !== false },
   }), $("save-note"));
   if (!result) return;
   const box = $("capture-result");
+  if (result.photo) setPhoto(null);
   if (!result.created) {
     box.innerHTML = `<div class="notice warn">This is already recorded: “${esc(result.duplicate_of.text)}”.
       <button class="link-btn" id="save-anyway">Save it anyway</button></div>`;
@@ -365,7 +401,7 @@ async function saveNote(allowDuplicate = false) {
   const m = result.memory;
   const where = m.scope === "private" ? "It stays on this device."
     : state.status?.link.online ? "It will sync in a moment." : "It is queued and will sync when the link returns.";
-  box.innerHTML = `<div class="notice">Saved. ${where}</div>`;
+  box.innerHTML = `<div class="notice">Saved${result.photo ? " with the photo" : ""}. ${where}</div>`;
   setTimeout(() => { box.innerHTML = ""; }, 5000);
   $("note").value = "";
   $("scope-override").value = "";
@@ -406,6 +442,9 @@ async function runSearch(withAnswer = true) {
     }
     if (r.matched.rerank !== undefined) {
       parts.push(`<span class="signal">Read together <span class="bar"><span style="width:${Math.round(r.strength.rerank * 100)}%"></span></span> ${r.matched.rerank.toFixed(2)}</span>`);
+    }
+    if (r.matched.image !== undefined) {
+      parts.push(`<span class="signal">Photo <span class="bar"><span style="width:${Math.round(r.strength.image * 100)}%"></span></span> ${r.matched.image.toFixed(2)}</span>`);
     }
     return memoryItem(r, `<div class="signals">${parts.join("")}</div>`);
   }).join("") : `<div class="empty-state">Nothing in device memory matches that.</div>`;
@@ -475,6 +514,7 @@ async function openMemory(id) {
   $("drawer-body").innerHTML = `
     <div class="drawer-head"><h2>Memory</h2><button class="btn ghost small" data-close>Close</button></div>
     ${badges(m)}
+    ${thumbs(m.photos, "large")}
     <div class="field"><label for="edit-text">Note</label><textarea id="edit-text" rows="5">${esc(m.text)}</textarea></div>
     ${masked}
     <div class="field"><label for="edit-tags">Tags, separated by commas</label><input id="edit-tags" type="text" value="${esc(m.tags.join(", "))}"></div>
@@ -727,6 +767,8 @@ $("tabs").addEventListener("click", (event) => {
 
 $("note").addEventListener("input", schedulePreview);
 $("scope-override").addEventListener("change", loadPreview);
+$("add-photo").addEventListener("click", () => $("photo-file").click());
+$("photo-file").addEventListener("change", (event) => setPhoto(event.target.files[0]));
 $("save-note").addEventListener("click", () => saveNote(false));
 $("note").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) saveNote(false);

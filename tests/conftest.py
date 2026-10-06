@@ -12,6 +12,7 @@ from fieldmind.embedder import Embedder  # noqa: E402
 from fieldmind.ner import NameFinder  # noqa: E402
 from fieldmind.reranker import Reranker  # noqa: E402
 from fieldmind.runtime import build  # noqa: E402
+from fieldmind.vision import ImageEmbedder  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -33,15 +34,25 @@ def reranker():
     return model
 
 
+@pytest.fixture(scope="session")
+def vision():
+    """The CLIP pair for photos; loaded only by tests that ask for photos."""
+    model = ImageEmbedder(Settings().models_dir, background=False)
+    assert model.available, model.error
+    return model
+
+
 @pytest.fixture
-def fleet(tmp_path, embedder, names, reranker):
+def fleet(tmp_path, embedder, names, reranker, request):
     """Two devices on the same site, sharing one cloud."""
     cloud_client = QdrantClient(":memory:")
     devices = []
 
     def make(name: str, site: str = "plant-1", **overrides):
         settings = Settings(device_id=name, site=site, data_root=tmp_path, sync_batch=100, ollama_model="", **overrides)
-        device = build(settings, embedder=embedder, cloud_client=cloud_client, names=names, reranker=reranker)
+        vision = request.getfixturevalue("vision") if settings.photos else None
+        device = build(settings, embedder=embedder, cloud_client=cloud_client, names=names, reranker=reranker,
+                       vision=vision)
         devices.append(device)
         return device
 

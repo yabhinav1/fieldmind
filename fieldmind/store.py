@@ -68,11 +68,25 @@ def build_filter(
     return Filter(must=must_c or None, must_not=not_c or None)
 
 
+def memory_config() -> EdgeConfig:
+    """Dense plus BM25 vectors: the layout of the local and replica shards."""
+    return EdgeConfig(
+        vectors={DENSE: EdgeVectorParams(size=DENSE_DIM, distance=Distance.Cosine)},
+        sparse_vectors={SPARSE: EdgeSparseVectorParams(modifier=Modifier.Idf)},
+        # Every segment preallocates its own storage files (about 215 MB), so an
+        # edge device keeps exactly one.
+        optimizers=EdgeOptimizersConfig(default_segment_number=1),
+    )
+
+
 class Shard:
-    def __init__(self, path: Path, name: str, vault: Vault | None = None):
+    def __init__(self, path: Path, name: str, vault: Vault | None = None, config: EdgeConfig | None = None,
+                 indexed: tuple[str, ...] = INDEXED_FIELDS):
         self.name = name
         self.path = path
         self.vault = vault or Vault(None)
+        self._config = config or memory_config()
+        self._indexed = indexed
         self._lock = threading.RLock()
         self._open()
 
@@ -83,24 +97,21 @@ class Shard:
 
     def _open(self) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
-        config = EdgeConfig(
-            vectors={DENSE: EdgeVectorParams(size=DENSE_DIM, distance=Distance.Cosine)},
-            sparse_vectors={SPARSE: EdgeSparseVectorParams(modifier=Modifier.Idf)},
-            # Every segment preallocates its own storage files (about 215 MB), so an
-            # edge device keeps exactly one.
-            optimizers=EdgeOptimizersConfig(default_segment_number=1),
-        )
         # load() creates the shard when the directory is empty.
-        self._shard = EdgeShard.load(str(self.path), config)
+        self._shard = EdgeShard.load(str(self.path), self._config)
         existing = self._shard.info().payload_schema
-        for name in INDEXED_FIELDS:
+        for name in self._indexed:
             if name not in existing:
                 self._shard.update(UpdateOperation.create_field_index(name, PayloadSchemaType.Keyword))
 
     # -- writes -----------------------------------------------------------
 
     def upsert(self, memory_id: str, dense: list[float], sparse: SparseVector, payload: dict) -> None:
-        point = Point(memory_id, {DENSE: dense, SPARSE: sparse}, self._sealed(payload))
+        self.upsert_point(memory_id, {DENSE: dense, SPARSE: sparse}, payload)
+
+    def upsert_point(self, point_id: str, vectors: dict[str, Any], payload: dict) -> None:
+        """Write a point with any set of named vectors (the media shard has one called ``image``)."""
+        point = Point(point_id, vectors, self._sealed(payload))
         with self._lock:
             self._shard.update(UpdateOperation.upsert_points([point]))
 
@@ -206,6 +217,7 @@ class Shard:
         if with_vector and record.vector:
             out["dense"] = record.vector.get(DENSE)
             out["sparse"] = record.vector.get(SPARSE)
+            out["vectors"] = record.vector
         return out
 
 

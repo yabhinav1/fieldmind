@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -176,10 +177,84 @@ class Cloud:
         return self.write(memory_id, TOMBSTONE_VECTOR, None, payload, expect_rev)
 
     def reset(self) -> None:
-        if self.client.collection_exists(self.collection):
-            self.client.delete_collection(self.collection)
-        self._ready = False
+        for name in (self.collection, self.media_collection):
+            if self.client.collection_exists(name):
+                self.client.delete_collection(name)
+        self._ready = self._media_ready = False
         self.ensure()
+
+    # -- photos -------------------------------------------------------------
+    # Thumbnails of shared photos live in a second collection, one CLIP vector
+    # each, so devices can find each other's photos by what they show.
+
+    _media_ready = False
+
+    @property
+    def media_collection(self) -> str:
+        return f"{self.collection}_media"
+
+    def ensure_media(self) -> None:
+        if self._media_ready:
+            return
+        from .vision import IMAGE_DIM
+
+        if not self.client.collection_exists(self.media_collection):
+            self.client.create_collection(
+                self.media_collection,
+                vectors_config={"image": m.VectorParams(size=IMAGE_DIM, distance=m.Distance.COSINE)},
+                optimizers_config=m.OptimizersConfigDiff(default_segment_number=1),
+            )
+        if not self._injected:
+            for name in ("site", "status", "memory_id"):
+                self.client.create_payload_index(self.media_collection, name, m.PayloadSchemaType.KEYWORD)
+        self._media_ready = True
+
+    def media_manifest(self, site: str | None = None) -> dict[str, dict]:
+        self.ensure_media()
+        flt = None
+        if site:
+            flt = m.Filter(should=[m.FieldCondition(key="site", match=m.MatchValue(value=site)),
+                                   m.FieldCondition(key="site", match=m.MatchValue(value="global"))])
+        out, offset = {}, None
+        while True:
+            records, offset = self.client.scroll(self.media_collection, scroll_filter=flt, limit=512, offset=offset,
+                                                 with_payload=["status", "memory_id", "device_id"], with_vectors=False)
+            for record in records:
+                out[str(record.id)] = record.payload or {}
+            if offset is None:
+                return out
+
+    def get_media(self, ids: Iterable[str]) -> list[dict]:
+        ids = list(ids)
+        if not ids:
+            return []
+        self.ensure_media()
+        records = self.client.retrieve(self.media_collection, ids, with_payload=True, with_vectors=True)
+        return [{"id": str(r.id), "payload": r.payload or {}, "vectors": dict(r.vector) if r.vector else {}}
+                for r in records]
+
+    def write_media(self, photo_id: str, vector: list[float], payload: dict) -> bool:
+        self.ensure_media()
+        write_id = secrets.token_hex(8)
+        point = m.PointStruct(id=photo_id, vector={"image": vector}, payload={**payload, "write_id": write_id})
+        self.client.upsert(self.media_collection, [point], wait=True)
+        stored = self.client.retrieve(self.media_collection, [photo_id], with_payload=["write_id"])
+        return bool(stored) and (stored[0].payload or {}).get("write_id") == write_id
+
+    def tombstone_media(self, photo_id: str, memory_id: str | None, device_id: str) -> None:
+        """Replace a shared photo with a marker so other devices drop their copies."""
+        self.ensure_media()
+        from .vision import IMAGE_DIM
+
+        payload = {"status": "deleted", "memory_id": memory_id, "device_id": device_id, "updated_at": time.time()}
+        self.client.upsert(self.media_collection,
+                           [m.PointStruct(id=photo_id, vector={"image": [1.0] + [0.0] * (IMAGE_DIM - 1)}, payload=payload)],
+                           wait=True)
+
+    def media_count(self, live_only: bool = True) -> int:
+        self.ensure_media()
+        flt = m.Filter(must_not=[m.FieldCondition(key="status", match=m.MatchValue(value="deleted"))]) if live_only else None
+        return self.client.count(self.media_collection, count_filter=flt, exact=True).count
 
     @staticmethod
     def _record(record, with_vectors: bool) -> dict:

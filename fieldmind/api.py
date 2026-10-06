@@ -5,8 +5,9 @@ from __future__ import annotations
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -223,7 +224,9 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
                        "name_model": "BERT NER (ONNX)" if d.names.available else None,
                        "reranker": "MiniLM cross-encoder (ONNX)" if d.service.reranker else None,
                        "learned_examples": d.service.policy.learned_count,
-                       "sealed": bool(d.vault and d.vault.active)},
+                       "sealed": bool(d.vault and d.vault.active),
+                       "photos": d.service.photos is not None,
+                       "vision_model": "CLIP ViT-B/32 (ONNX)" if d.service.photos and d.service.photos.available else None},
             "sync": {"last_sync_at": d.journal.get("last_sync_at"), "totals": d.journal.totals(), "interval": settings.sync_interval,
                      "batch": settings.sync_batch},
             "now": time.time(),
@@ -254,6 +257,29 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
                                          allow_duplicate=body.allow_duplicate, supersede=body.supersede)
         except ValueError as error:
             raise HTTPException(400, str(error)) from None
+
+    @app.post("/api/photos")
+    async def add_photo(file: Annotated[UploadFile, File()], caption: Annotated[str, Form()] = "",
+                        scope: Annotated[str | None, Form()] = None):
+        if not dev().service.photos:
+            raise HTTPException(409, "Photos are turned off on this device (FIELDMIND_PHOTOS=1 turns them on).")
+        data = await file.read()
+        if len(data) > 25 * 1024 * 1024:
+            raise HTTPException(413, "That photo is larger than 25 MB.")
+        try:
+            return dev().service.attach_photo(data, caption, scope or None)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        except Exception as error:  # a file that is not an image, or the model not loaded
+            raise HTTPException(400, f"The photo could not be read: {error}") from None
+
+    @app.get("/api/photos/{photo_id}")
+    def photo(photo_id: str):
+        photos = dev().service.photos
+        data = photos.read(photo_id) if photos else None
+        if data is None:
+            raise HTTPException(404, "No such photo on this device.")
+        return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
     @app.get("/api/memories")
     def memories(scope: str | None = None, sync_state: str | None = None, kind: str | None = None,

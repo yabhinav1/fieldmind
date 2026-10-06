@@ -212,6 +212,10 @@ class SyncEngine:
             try:
                 if op["op"] == "upsert":
                     self._push_upsert(op, stats)
+                elif op["op"] == "photo":
+                    self._push_photo(op, stats)
+                elif op["op"] == "photo_delete":
+                    self._push_photo_delete(op, stats)
                 else:
                     self._push_removal(op, stats)
             except Exception as error:
@@ -363,6 +367,62 @@ class SyncEngine:
         verb = "Withdrew from the cloud" if retract else "Deleted from the cloud"
         self.journal.log("sync", f"{verb}: {_clip((op['base_payload'] or {}).get('text', ''))}", memory_id=memory_id)
 
+    # -- photos -------------------------------------------------------------
+
+    def _push_photo(self, op: dict, stats: dict) -> None:
+        photos = self.service.photos
+        photo = photos.get(op["memory_id"]) if photos else None
+        memory = self.service.local.get(photo["memory_id"]) if photo else None
+        if not photo or not memory or photo["scope"] == PRIVATE or memory["payload"].get("scope") == PRIVATE:
+            self.journal.finish(op["seq"], "cancelled")
+            return
+        view = photos.cloud_view(photo, cloud_view(memory["payload"])["text"])
+        if view is None:
+            self.journal.finish(op["seq"], "cancelled", "The photo file is missing.")
+            return
+        payload, vector = view
+        if not self.cloud.write_media(photo["id"], vector, payload):
+            self.journal.defer(op["seq"], "The cloud copy changed during upload; retrying.")
+            return
+        photos.set_state(photo["id"], sync_state="synced")
+        self.journal.finish(op["seq"])
+        stats["pushed"] += 1
+        stats["bytes_up"] += len(payload["image"]) + 4 * len(vector)
+
+    def _push_photo_delete(self, op: dict, stats: dict) -> None:
+        self.cloud.tombstone_media(op["memory_id"], (op["base_payload"] or {}).get("memory_id"), self.settings.device_id)
+        self.journal.finish(op["seq"])
+        stats["pushed"] += 1
+
+    def _pull_photos(self, known: set[str], stats: dict) -> None:
+        """Fetch thumbnails other devices shared for memories this device holds, and drop
+        copies of photos that were deleted or withdrawn."""
+        photos = self.service.photos
+        manifest = self.cloud.media_manifest(self.settings.site)
+        have = photos.index()
+        wanted = []
+        for photo_id, entry in manifest.items():
+            mine = have.get(photo_id)
+            if entry.get("status") == "deleted":
+                if mine and mine.get("sync_state") in ("replica", "synced"):
+                    photos.remove([photo_id])
+                    stats["removed"] += 1
+            elif mine is None and entry.get("memory_id") in known:
+                wanted.append(photo_id)
+        gone = [i for i, p in have.items() if p.get("sync_state") == "replica" and i not in manifest]
+        if gone:
+            photos.remove(gone)
+            stats["removed"] += len(gone)
+        for start in range(0, len(wanted), 16):
+            for record in self.cloud.get_media(wanted[start:start + 16]):
+                stats["bytes_down"] += len(record["payload"].get("image") or "")
+                if photos.store_remote(record):
+                    stats["pulled"] += 1
+                    self.journal.log("sync", f"Received a photo from {record['payload'].get('device_id')}.",
+                                     memory_id=record["payload"].get("memory_id"))
+        if wanted or gone:
+            photos.shard.flush()
+
     def _after_removal(self, op: dict, local: dict | None, rev: int) -> None:
         with self.service.lock:
             if op["op"] == "retract" and local:
@@ -424,6 +484,8 @@ class SyncEngine:
                     continue
                 if deleted:
                     service.local.delete([memory_id])
+                    if service.photos:
+                        stats["removed"] += len(service.photos.remove_for(memory_id))
                     stats["removed"] += 1
                     journal.log("sync", f"Removed, deleted by {entry.get('device_id')}: {_clip(mine.get('text', ''))}",
                                 memory_id=memory_id)
@@ -432,6 +494,8 @@ class SyncEngine:
             elif deleted:
                 if memory_id in replica:
                     service.replica.delete([memory_id])
+                    if service.photos:
+                        stats["removed"] += len(service.photos.remove_for(memory_id))
                     stats["removed"] += 1
             elif replica.get(memory_id) != rev or replica_index[memory_id].get("via_peer"):
                 # New or changed in the cloud, or learned from a peer first: the
@@ -503,6 +567,10 @@ class SyncEngine:
             journal.set("warned_newer_schema", True)
             journal.log("sync", f"{skipped_newer} cloud memories were written by a newer FieldMind and are held back "
                                 "until this device is updated.", level="warn")
+
+        if service.photos:
+            known = set(local) | {r["id"] for r in service.replica.scroll(fields=["rev"])}
+            self._pull_photos(known, stats)
 
     # -- conflicts --------------------------------------------------------
 
