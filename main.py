@@ -23,25 +23,31 @@ for path in glob.glob(os.path.join(HERE, ".local", "lib", "python3*", "site-pack
         sys.path.insert(0, path)
 
 
-def deps_ready() -> bool:
-    try:
-        import fastapi  # noqa: F401
-        import fastembed  # noqa: F401
-        import qdrant_edge  # noqa: F401
-        import uvicorn  # noqa: F401
-    except ImportError:
-        return False
-    return True
+def import_problem() -> str | None:
+    """None when every package imports, otherwise the module and the error, verbatim."""
+    for name in ("numpy", "onnxruntime", "fastembed", "qdrant_edge", "fastapi", "uvicorn", "cryptography", "faster_whisper"):
+        try:
+            __import__(name)
+        except Exception as error:  # ImportError, or a native library failing to load
+            return f"{name}: {type(error).__name__}: {error}"
+    return None
 
 
-if not deps_ready():
-    print("Installing FieldMind's dependencies into ./.local (first start only, a few minutes)...", flush=True)
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--prefix", ".local", "-r", "requirements.txt"])
+problem = import_problem()
+if problem:
+    print(f"Dependencies are not importable yet ({problem}).", flush=True)
+    print("Installing FieldMind's dependencies into ./.local (a few minutes)...", flush=True)
+    subprocess.call([sys.executable, "-m", "pip", "install", "--prefix", ".local", "-r", "requirements.txt"])
     for path in glob.glob(os.path.join(HERE, ".local", "lib", "python3*", "site-packages")):
         if path not in sys.path:
             sys.path.insert(0, path)
-    if not deps_ready():
-        sys.exit("The packages were installed but cannot be imported. Check the Python version (3.11 to 3.13).")
+    problem = import_problem()
+    if problem:
+        print(f"\nA package cannot be imported on this machine: {problem}", flush=True)
+        print("sys.path:", *sys.path, sep="\n  ", flush=True)
+        print("\nIf a native library is missing, delete the .local folder in the panel's file manager and start again so it "
+              "is reinstalled for this machine. Python 3.11 to 3.13 are supported.", flush=True)
+        sys.exit(1)
 
 os.environ.setdefault("FIELDMIND_HOST", "0.0.0.0")
 os.environ["FIELDMIND_PORT"] = os.environ.get("SERVER_PORT") or os.environ.get("PORT") or os.environ.get("FIELDMIND_PORT", "8001")
