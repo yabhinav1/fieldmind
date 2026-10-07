@@ -264,12 +264,14 @@ function renderStatus(s) {
       <dt>Reranking</dt><dd>${esc(s.engine.reranker || "Off")}</dd>
       <dt>Learned choices</dt><dd>${s.engine.learned_examples || 0} from this device's overrides</dd>
       <dt>Answers</dt><dd>${esc(s.engine.answer_model || "Composed from notes")}</dd>
+      <dt>Dictation</dt><dd>${s.engine.speech_model ? esc(s.engine.speech_model) : s.engine.speech_loading ? "Speech model loading…" : "Browser speech service"}</dd>
       <dt>Photos</dt><dd>${s.engine.vision_model ? `${esc(s.engine.vision_model)} · ${s.memory.photos || 0} stored` : s.engine.photos ? "Vision model loading…" : "Off"}</dd>
       <dt>On disk</dt><dd>${s.engine.sealed ? "Private text and activity sealed with the device key" : "Not sealed"}</dd>
       <dt>Storage reserved</dt><dd>${bytes(disk)}</dd>
     </dl>`;
   $("rerank-label").hidden = !s.engine.reranker;
   $("add-photo").hidden = !s.engine.photos;
+  updateDictateButtons(s.engine);
   renderFilters();
   if (!link.online) seen("offline", true);
   if (state.guideOpen) renderGuide();
@@ -1015,13 +1017,98 @@ function startDictation(button, onDevice = true) {
   recognition.start();
 }
 
-if (Recognition) {
+// Preferred path: record a few seconds here, transcribe on the device (Whisper).
+// Works in every browser and with no network; the browser's own recogniser is
+// only a fallback for devices where speech to text is turned off.
+let recording = null;
+
+function recorderMime() {
+  for (const type of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return "";
+}
+
+async function startRecording(button) {
+  const target = $(button.dataset.dictate);
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast("The microphone needs a secure address (https or localhost). Open the dashboard over https to dictate.");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (error) {
+    toast(error.name === "NotAllowedError" ? "Microphone access was refused." : `No microphone: ${error.message}`);
+    return;
+  }
+  const mime = recorderMime();
+  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  const chunks = [];
+  recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+  recorder.onstop = async () => {
+    stream.getTracks().forEach((track) => track.stop());
+    clearTimeout(recording?.timer);
+    recording = null;
+    button.classList.remove("listening");
+    button.textContent = "… transcribing";
+    button.disabled = true;
+    try {
+      const form = new FormData();
+      form.append("file", new Blob(chunks, { type: recorder.mimeType || mime || "audio/webm" }), "dictation.webm");
+      form.append("language", (navigator.language || "en").slice(0, 2));
+      const response = await fetch("/api/transcribe", { method: "POST", body: form });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 401) showLock();
+      if (!response.ok) throw new Error(data.detail || `Transcription failed (${response.status})`);
+      if (data.text) {
+        target.value = (target.value.trim() ? `${target.value.trim()} ` : "") + data.text;
+        target.dispatchEvent(new Event("input"));
+        if (button.dataset.submit) $(button.dataset.submit).requestSubmit();
+      } else {
+        toast("Nothing was heard. Try again a little closer to the microphone.");
+      }
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = button.dataset.idle;
+      target.focus();
+    }
+  };
+  if (!button.dataset.idle) button.dataset.idle = button.textContent;
+  button.textContent = button.classList.contains("icon") ? "■" : "■ Stop";
+  button.classList.add("listening");
+  recording = { recorder, button, timer: setTimeout(() => recorder.state === "recording" && recorder.stop(), 30000) };
+  recorder.start();
+}
+
+function stopRecording() {
+  if (recording && recording.recorder.state === "recording") recording.recorder.stop();
+}
+
+function deviceSpeech() {
+  return Boolean(state.status?.engine?.speech_model);
+}
+
+document.querySelectorAll("[data-dictate]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (recording) { stopRecording(); return; }
+    if (listening) { stopDictation(); return; }
+    if (deviceSpeech()) startRecording(button);
+    else if (Recognition) startDictation(button);
+    else toast("Speech to text is loading on the device; try again in a moment.");
+  });
+});
+
+function updateDictateButtons(engine) {
+  const usable = Boolean(engine?.speech_model || engine?.speech_loading || Recognition);
   document.querySelectorAll("[data-dictate]").forEach((button) => {
-    button.hidden = false;
-    button.addEventListener("click", () => {
-      if (listening) { stopDictation(); return; }
-      startDictation(button);
-    });
+    button.hidden = !usable;
+    button.title = engine?.speech_model
+      ? "Dictate. Recorded here, transcribed on this device by Whisper. Nothing leaves the device."
+      : engine?.speech_loading ? "Dictate. The speech model is still loading."
+      : "Dictate. Uses the browser's speech service.";
   });
 }
 

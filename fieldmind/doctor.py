@@ -92,6 +92,10 @@ def run(settings: Settings) -> int:
     reranker = _reranker_model(settings) or not settings.rerank
     results.append(_report(OK if reranker else WARN, "Reranking model",
                            "turned off" if not settings.rerank else "" if reranker else "will download about 23 MB on first start"))
+    speech_dir = settings.models_dir / "whisper"
+    speech = (not settings.speech) or (speech_dir.exists() and any(speech_dir.rglob("model.bin")))
+    results.append(_report(OK if speech else WARN, "Speech model (Whisper)",
+                           "turned off" if not settings.speech else "" if speech else "will download about 140 MB on first start"))
     vision = _vision_models(settings) or not settings.photos
     results.append(_report(OK if vision else WARN, "Photo models (CLIP)",
                            "turned off; FIELDMIND_PHOTOS=1 turns photos on" if not settings.photos
@@ -136,7 +140,7 @@ def run(settings: Settings) -> int:
     if FAIL in results:
         print("Not ready. Fix the FAIL lines above.")
         return 1
-    offline_ready = embedding and names and reranker and vision
+    offline_ready = embedding and names and reranker and vision and speech
     print("Ready." + ("" if offline_ready else " Internet is needed once, to download the models.")
           + (" Some optional parts are off; see the warn lines." if WARN in results else ""))
     return 0

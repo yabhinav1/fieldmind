@@ -14,6 +14,7 @@ from .photos import PhotoStore
 from .policy import PolicyEngine
 from .reranker import Reranker
 from .service import MemoryService
+from .speech import Transcriber
 from .store import Shard
 from .sync import SyncEngine
 from .vault import Vault
@@ -33,6 +34,7 @@ class Device:
     vault: Vault | None = None
     peers: PeerExchange | None = None
     photos: PhotoStore | None = None
+    speech: Transcriber | None = None
 
     closed: bool = False
 
@@ -50,7 +52,8 @@ class Device:
 
 def build(settings: Settings, embedder: Embedder | None = None, cloud_client=None,
           names: NameFinder | None = None, reranker: Reranker | None = None,
-          peer_fetch: Fetch | None = None, vision: ImageEmbedder | None = None) -> Device:
+          peer_fetch: Fetch | None = None, vision: ImageEmbedder | None = None,
+          speech: Transcriber | None = None) -> Device:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     embedder = embedder or Embedder(settings.models_dir)
     names = names or NameFinder(settings.models_dir)
@@ -66,4 +69,6 @@ def build(settings: Settings, embedder: Embedder | None = None, cloud_client=Non
     cloud = Cloud(settings.cloud_url, settings.cloud_api_key, settings.collection, client=cloud_client)
     peers = PeerExchange(service, fetch=peer_fetch)
     sync = SyncEngine(service, journal, cloud, peers=peers)
-    return Device(settings, embedder, names, journal, service, cloud, sync, reranker, vault, peers, photos)
+    if speech is None and settings.speech:
+        speech = Transcriber(settings.models_dir, settings.speech_model)
+    return Device(settings, embedder, names, journal, service, cloud, sync, reranker, vault, peers, photos, speech)

@@ -82,6 +82,12 @@ class Settings:
     # text, and a third shard holds them. Off by default because of the download.
     photos: bool = field(default_factory=lambda: _env("PHOTOS", "0") not in ("0", "false", "no", ""))
 
+    # Speech to text on the device (Whisper base, int8, about 140 MB), so dictation
+    # works in every browser and offline. 0 turns it off; a Whisper size name
+    # ("tiny", "base", "small") picks the model.
+    speech: bool = field(default_factory=lambda: _env("SPEECH", "base") not in ("0", "false", "no", ""))
+    speech_model: str = field(default_factory=lambda: _env("SPEECH", "base") if _env("SPEECH", "base") not in ("1", "true", "yes") else "base")
+
     # Rerank search candidates with a small cross-encoder (about 23 MB). Answers
     # always use it when it is loaded; search uses it on request.
     rerank: bool = field(default_factory=lambda: _env("RERANK", "1") not in ("0", "false", "no", ""))

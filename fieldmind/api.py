@@ -249,6 +249,8 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
                        "learned_examples": d.service.policy.learned_count,
                        "sealed": bool(d.vault and d.vault.active),
                        "photos": d.service.photos is not None,
+                       "speech_model": f"Whisper {d.speech.model_name} (on device)" if d.speech and d.speech.available else None,
+                       "speech_loading": bool(d.speech and not d.speech.available and d.speech.error is None),
                        "vision_model": "CLIP ViT-B/32 (ONNX)" if d.service.photos and d.service.photos.available else None},
             "sync": {"last_sync_at": d.journal.get("last_sync_at"), "totals": d.journal.totals(), "interval": settings.sync_interval,
                      "batch": settings.sync_batch},
@@ -295,6 +297,22 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             raise HTTPException(400, str(error)) from None
         except Exception as error:  # a file that is not an image, or the model not loaded
             raise HTTPException(400, f"The photo could not be read: {error}") from None
+
+    @app.post("/api/transcribe")
+    async def transcribe(file: Annotated[UploadFile, File()], language: Annotated[str | None, Form()] = "en"):
+        """Words from a short recording, transcribed on the device."""
+        speech = dev().speech
+        if speech is None:
+            raise HTTPException(409, "Speech to text is turned off on this device (FIELDMIND_SPEECH).")
+        data = await file.read()
+        if len(data) > 15 * 1024 * 1024:
+            raise HTTPException(413, "That recording is too large.")
+        try:
+            return speech.transcribe(data, language or None)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        except Exception as error:
+            raise HTTPException(503, f"Could not transcribe: {str(error).splitlines()[0]}") from None
 
     @app.get("/api/photos/{photo_id}")
     def photo(photo_id: str):

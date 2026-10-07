@@ -12,6 +12,7 @@ from fieldmind.embedder import Embedder  # noqa: E402
 from fieldmind.ner import NameFinder  # noqa: E402
 from fieldmind.reranker import Reranker  # noqa: E402
 from fieldmind.runtime import build  # noqa: E402
+from fieldmind.speech import Transcriber  # noqa: E402
 from fieldmind.vision import ImageEmbedder  # noqa: E402
 
 
@@ -42,6 +43,13 @@ def vision():
     return model
 
 
+@pytest.fixture(scope="session")
+def speech():
+    model = Transcriber(Settings().models_dir, background=False)
+    assert model.available, model.error
+    return model
+
+
 @pytest.fixture
 def fleet(tmp_path, embedder, names, reranker, request):
     """Two devices on the same site, sharing one cloud."""
@@ -51,8 +59,9 @@ def fleet(tmp_path, embedder, names, reranker, request):
     def make(name: str, site: str = "plant-1", **overrides):
         settings = Settings(device_id=name, site=site, data_root=tmp_path, sync_batch=100, ollama_model="", **overrides)
         vision = request.getfixturevalue("vision") if settings.photos else None
+        speech = request.getfixturevalue("speech") if settings.speech else None
         device = build(settings, embedder=embedder, cloud_client=cloud_client, names=names, reranker=reranker,
-                       vision=vision)
+                       vision=vision, speech=speech)
         devices.append(device)
         return device
 

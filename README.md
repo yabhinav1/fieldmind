@@ -30,7 +30,7 @@ Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 | Work through intermittent connectivity | Every change goes to a durable outbox first. It survives restarts and replays when the link returns, urgent items first. |
 | Sync with Qdrant Server | Uploads are compare-and-swap writes. Small downloads use a manifest diff. A device that is far behind restores its replica from a Qdrant Server shard snapshot. |
 | Evolving memory, updates and conflicts | Follow-up notes replace earlier beliefs. Concurrent edits merge field by field. True clashes wait for a person and nothing is overwritten. |
-| Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN. Installable on a phone with a thumb-friendly layout; notes can be dictated; a shift report downloads as Markdown; an encrypted backup moves a device's private memory to a replacement. |
+| Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN. Installable on a phone with a thumb-friendly layout; notes can be dictated and are transcribed on the device by Whisper; a shift report downloads as Markdown; an encrypted backup moves a device's private memory to a replacement. |
 | A meaningful edge-to-cloud workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes and photos flow back to the fleet. When the cloud is out of reach, devices on the same network learn from each other directly. |
 
 [docs/requirements.md](docs/requirements.md) maps each goal to its code and tests.
@@ -193,7 +193,7 @@ The script disconnects the device from the cloud's network, checks that it notic
 
 ### Phones and tablets
 
-`python -m fieldmind start --lan` binds the dashboards to the local network. Open the address on a phone and choose *Add to Home Screen*: the dashboard installs as an app and its shell stays available offline (no note text is ever cached by the browser). A device with no PIN yet prints a one-time setup code in its console (the `start` command repeats it); the first person to open the dashboard from another machine enters that code with the PIN they choose, so only someone who can read the device's console can claim it. On the device itself no code is needed. The Dictate button uses the browser's speech recognition.
+`python -m fieldmind start --lan` binds the dashboards to the local network. Open the address on a phone and choose *Add to Home Screen*: the dashboard installs as an app and its shell stays available offline (no note text is ever cached by the browser). A device with no PIN yet prints a one-time setup code in its console (the `start` command repeats it); the first person to open the dashboard from another machine enters that code with the PIN they choose, so only someone who can read the device's console can claim it. On the device itself no code is needed. The Dictate button records a few seconds and the device transcribes them with Whisper; the microphone needs an https address (or localhost).
 
 ## Demo script (5 minutes)
 
@@ -235,7 +235,7 @@ Ryzen 7 7435HS, 32 GB RAM, RTX 3050 4 GB.
 | Replica restore from a snapshot (15 memories) | under 2 s |
 | Device start (models already on disk) | about 2 s |
 
-Disk: each device reserves about 430 MB, because every Qdrant Edge shard preallocates its write-ahead log and storage pages (a third shard, 215 MB, when photos are on). Models take about 260 MB (embedding, names, reranker), plus 590 MB for the optional photo models and 2 GB for the optional language model.
+Disk: each device reserves about 430 MB, because every Qdrant Edge shard preallocates its write-ahead log and storage pages (a third shard, 215 MB, when photos are on). Models take about 400 MB (embedding, names, reranker, Whisper), plus 590 MB for the optional photo models and 2 GB for the optional language model.
 
 ## Known limits
 
@@ -243,7 +243,7 @@ Disk: each device reserves about 430 MB, because every Qdrant Edge shard preallo
 - The PIN session is a cookie over plain HTTP, which is fine on the device itself and weak across a network. Put TLS in front before using `--lan` outside a demo.
 - The answer model is small. The source check catches numbers, asset tags and verdicts that do not come from the cited note, not every possible misreading, so answers always list the notes they were based on.
 - The name model is English and cased. It handles common Indian and Western names in our tests but will miss some. Addresses are caught only when they start with a house, flat or plot number.
-- Dictation uses the browser's speech recognition. Where the browser cannot run it on the device, audio goes to the browser vendor's service and needs internet; the device itself never sends audio anywhere.
+- Dictation records in the browser and transcribes on the device with Whisper (base, int8), so no audio leaves the device and it works offline and in every browser. Browsers only allow the microphone on https or localhost, so a device reached over plain http on a network needs TLS in front (or the panel's https proxy) before dictation works there. With FIELDMIND_SPEECH=0 the dashboard falls back to the browser's own recogniser, which Brave and Firefox do not provide.
 - Pull sync compares a slim index (revision and state) of every memory in the device's site on each cycle. That is fine for tens of thousands of memories, not millions.
 - Snapshot restore downloads the whole shard before trimming to the device's site, so other sites' data touches the disk briefly.
 - Photos are not inspected for faces or name plates; the caption decides the scope. Peers exchange notes but not photos.
@@ -257,6 +257,7 @@ fieldmind/
   embedder.py   dense (ONNX) and BM25 embeddings
   ner.py        name recognition for masking
   reranker.py   cross-encoder that reorders search candidates
+  speech.py     Whisper on the device for dictation
   vision.py     CLIP image and text embeddings, EXIF stripping
   photos.py     photos as memories: media shard, thumbnails, cloud view
   policy.py     what may leave the device, and what it learned from the person
