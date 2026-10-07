@@ -264,7 +264,7 @@ function renderStatus(s) {
       <dt>Reranking</dt><dd>${esc(s.engine.reranker || "Off")}</dd>
       <dt>Learned choices</dt><dd>${s.engine.learned_examples || 0} from this device's overrides</dd>
       <dt>Answers</dt><dd>${esc(s.engine.answer_model || "Composed from notes")}</dd>
-      <dt>Dictation</dt><dd>${s.engine.speech_model ? esc(s.engine.speech_model) : s.engine.speech_loading ? "Speech model loading…" : "Browser speech service"}</dd>
+      <dt>Dictation</dt><dd>${s.engine.speech_model ? esc(s.engine.speech_model) : s.engine.speech_loading ? "Speech model loading…" : s.engine.speech_error ? `Failed: ${esc(s.engine.speech_error)}` : "Browser speech service"}</dd>
       <dt>Photos</dt><dd>${s.engine.vision_model ? `${esc(s.engine.vision_model)} · ${s.memory.photos || 0} stored` : s.engine.photos ? "Vision model loading…" : "Off"}</dd>
       <dt>On disk</dt><dd>${s.engine.sealed ? "Private text and activity sealed with the device key" : "Not sealed"}</dd>
       <dt>Storage reserved</dt><dd>${bytes(disk)}</dd>
@@ -1014,6 +1014,15 @@ function startDictation(button, onDevice = true) {
   button.textContent = button.classList.contains("icon") ? "■" : "■ Listening…";
   button.classList.add("listening");
   listening = { recognition, button };
+  // Some browsers expose the API but never answer; do not sit on "Listening…" forever.
+  const watchdog = setTimeout(() => {
+    if (listening && listening.recognition === recognition && !target.value.trim()) {
+      toast("This browser's speech recognition did not respond. Type the note instead.");
+      try { recognition.abort(); } catch (error) { /* already stopped */ }
+    }
+  }, 12000);
+  const originalEnd = recognition.onend;
+  recognition.onend = () => { clearTimeout(watchdog); originalEnd(); };
   recognition.start();
 }
 
@@ -1095,19 +1104,25 @@ document.querySelectorAll("[data-dictate]").forEach((button) => {
   button.addEventListener("click", () => {
     if (recording) { stopRecording(); return; }
     if (listening) { stopDictation(); return; }
-    if (deviceSpeech()) startRecording(button);
-    else if (Recognition) startDictation(button);
-    else toast("Speech to text is loading on the device; try again in a moment.");
+    const engine = state.status?.engine || {};
+    if (engine.speech_model) return startRecording(button);
+    if (engine.speech_loading) return toast("The speech model is still loading on the device. Try again in a moment.");
+    if (engine.speech_error) return toast(`Speech to text failed to load on the device: ${engine.speech_error}`);
+    // Speech to text is turned off on this device: the browser's own recogniser is
+    // the only option, and some browsers (Brave, Firefox) do not provide one.
+    if (Recognition) startDictation(button);
+    else toast("This browser has no speech recognition and the device's speech model is turned off.");
   });
 });
 
 function updateDictateButtons(engine) {
-  const usable = Boolean(engine?.speech_model || engine?.speech_loading || Recognition);
+  const usable = Boolean(engine?.speech_enabled || Recognition);
   document.querySelectorAll("[data-dictate]").forEach((button) => {
     button.hidden = !usable;
     button.title = engine?.speech_model
       ? "Dictate. Recorded here, transcribed on this device by Whisper. Nothing leaves the device."
       : engine?.speech_loading ? "Dictate. The speech model is still loading."
+      : engine?.speech_error ? `Speech to text failed to load: ${engine.speech_error}`
       : "Dictate. Uses the browser's speech service.";
   });
 }

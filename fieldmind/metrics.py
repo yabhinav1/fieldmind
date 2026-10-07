@@ -59,6 +59,13 @@ def render(device: Device) -> str:
     lines.append(f'fieldmind_search_ms{{{labels},quantile="0.95"}} {_quantile(search, 0.95)}')
     gauge("answer_ms", _quantile(answer, 0.5), "Recent answer latency in milliseconds.", 'quantile="0.5"')
     lines.append(f'fieldmind_answer_ms{{{labels},quantile="0.95"}} {_quantile(answer, 0.95)}')
+    # Which on-device models are loaded (1), still loading (0.5) or failed (0); absent when turned off.
+    for name, model in (("speech", device.speech), ("vision", device.photos.embedder if device.photos else None),
+                        ("reranker", device.reranker)):
+        if model is None:
+            continue
+        value = 1 if model.available else (0 if getattr(model, "error", None) else 0.5)
+        gauge(f"model_ready_{name}", value, f"1 when the {name} model is loaded, 0.5 while loading, 0 when it failed.")
     last = journal.get("last_sync_at")
     gauge("last_sync_timestamp_seconds", last or 0, "Unix time of the last completed sync cycle.")
     return "\n".join(lines) + "\n"
