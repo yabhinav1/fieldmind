@@ -131,7 +131,12 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         elif path.startswith("/api/") and not path.startswith("/api/auth/"):
             if not auth().valid(request.cookies.get(cookie)):
                 return JSONResponse({"detail": "This device is locked."}, status_code=401)
-        return await call_next(request)
+        response = await call_next(request)
+        if path.startswith("/static/") or path in ("/", "/manifest.webmanifest"):
+            # Always revalidate the dashboard's files (ETag), so an updated device
+            # is used on the next load rather than after a proxy's cache expires.
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     def open_session(response: Response) -> dict:
         response.set_cookie(cookie, auth().start_session(), httponly=True, samesite="strict", max_age=12 * 3600)

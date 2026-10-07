@@ -156,4 +156,6 @@ def test_the_dashboard_is_installable_and_its_shell_needs_no_pin(app):
         assert worker.status_code == 200 and "javascript" in worker.headers["content-type"]
         assert worker.headers["service-worker-allowed"] == "/"
         assert "/api/" in worker.text, "the worker names the API prefix it must never cache"
-        assert client.get("/static/icon.svg").status_code == 200
+        icon = client.get("/static/icon.svg")
+        assert icon.status_code == 200 and icon.headers["cache-control"] == "no-cache"
+        assert client.get("/static/app.js").headers["cache-control"] == "no-cache", "updates show on the next load"

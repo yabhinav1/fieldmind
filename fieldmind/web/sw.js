@@ -3,7 +3,7 @@
 // to the device each time, so no note text is ever stored by the browser.
 "use strict";
 
-const VERSION = "fieldmind-shell-v2";
+const VERSION = "fieldmind-shell-v3";
 const SHELL = ["/", "/static/styles.css", "/static/app.js", "/static/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -21,13 +21,16 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET" || url.origin !== location.origin) return;
   if (url.pathname.startsWith("/api/") || url.pathname === "/metrics" || url.pathname === "/healthz") return;
 
-  // Shell files: answer from the cache at once, refresh it in the background.
+  // Shell files: network first, so an updated dashboard shows up on the next
+  // load; the cached copy is only for when the device cannot be reached.
   event.respondWith(caches.open(VERSION).then(async (cache) => {
-    const cached = await cache.match(event.request, { ignoreSearch: url.pathname === "/" });
-    const refresh = fetch(event.request).then((response) => {
+    try {
+      const response = await fetch(event.request, { cache: "no-cache" });
       if (response.ok) cache.put(event.request, response.clone());
       return response;
-    }).catch(() => cached);
-    return cached || refresh;
+    } catch (error) {
+      const cached = await cache.match(event.request, { ignoreSearch: url.pathname === "/" });
+      return cached || Response.error();
+    }
   }));
 });
