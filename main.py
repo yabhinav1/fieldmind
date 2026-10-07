@@ -17,10 +17,21 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.chdir(HERE)
 
-# Packages the egg installed with "pip install --prefix .local" live here.
-for path in glob.glob(os.path.join(HERE, ".local", "lib", "python3*", "site-packages")):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+# Packages the host installed with "pip install --prefix .local" live here. Only
+# the tree for the Python that is running counts: a server whose image changed
+# from 3.12 to 3.13 keeps the old tree around, and its binaries must not load.
+SITE = os.path.join(HERE, ".local", "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages")
+
+
+def use_local_site() -> None:
+    if os.path.isdir(SITE) and SITE not in sys.path:
+        sys.path.insert(0, SITE)
+    for other in glob.glob(os.path.join(HERE, ".local", "lib", "python3*", "site-packages")):
+        if other != SITE and other in sys.path:
+            sys.path.remove(other)
+
+
+use_local_site()
 
 
 def import_problem() -> str | None:
@@ -38,15 +49,13 @@ if problem:
     print(f"Dependencies are not importable yet ({problem}).", flush=True)
     print("Installing FieldMind's dependencies into ./.local (a few minutes)...", flush=True)
     subprocess.call([sys.executable, "-m", "pip", "install", "--prefix", ".local", "-r", "requirements.txt"])
-    for path in glob.glob(os.path.join(HERE, ".local", "lib", "python3*", "site-packages")):
-        if path not in sys.path:
-            sys.path.insert(0, path)
+    use_local_site()
     problem = import_problem()
     if problem:
         print(f"\nA package cannot be imported on this machine: {problem}", flush=True)
         print("sys.path:", *sys.path, sep="\n  ", flush=True)
-        print("\nIf a native library is missing, delete the .local folder in the panel's file manager and start again so it "
-              "is reinstalled for this machine. Python 3.11 to 3.13 are supported.", flush=True)
+        print("\nDelete the .local folder in the panel's file manager and start again so the packages are reinstalled "
+              "for this machine and Python version. Python 3.11 to 3.13 are supported.", flush=True)
         sys.exit(1)
 
 os.environ.setdefault("FIELDMIND_HOST", "0.0.0.0")
