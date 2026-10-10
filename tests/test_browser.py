@@ -72,29 +72,37 @@ def test_the_dashboard_works_in_a_browser(served, page):
     page.click("#lock-submit")
     page.wait_for_selector("#lock[hidden]", state="attached")
 
-    # Empty device: the start card shows, the settings menu does not.
-    page.wait_for_selector("#start-here:not([hidden])")
+    # The overview: the two action cards show, the composer and the settings menu do not.
+    page.wait_for_selector("#start-here")
+    assert page.is_hidden("#composer")
     assert page.is_hidden("#settings-menu")
     assert page.is_hidden("#photo-preview")
+    assert "Device status" in page.inner_text("#panel-work")
 
     # Record a note and watch the policy preview.
+    page.click("#open-composer")
+    page.wait_for_selector("#composer:not([hidden])")
     page.fill("#note", "Motor M-9 overheating, call Operator Anil Sharma on 9876543210 before restarting")
     page.wait_for_selector(".preview.redacted")
     assert "[person removed]" in page.inner_text("#preview")
     page.click("#save-note")
     page.wait_for_selector("#capture-result .notice")
-    page.wait_for_selector("#start-here[hidden]", state="attached")
+    page.wait_for_selector("#recent .recent-item")
 
-    # Search finds it on the device.
+    # The Memory page finds it on the device.
+    page.click('.tab[data-tab="memory"]')
+    page.wait_for_selector("#panel-memory.active")
+    page.wait_for_selector("#memory-list .item")
     page.fill("#query", "which motor is overheating")
     page.click("#search-form button[type=submit]")
     page.wait_for_selector("#results .item")
     assert "M-9" in page.inner_text("#results .item")
     assert "0 network calls" in page.inner_text("#search-meta")
 
-    # Tabs, the settings menu and the guide render.
+    # The Sync page, the settings menu and the guide render.
     page.click('.tab[data-tab="sync"]')
     page.wait_for_selector("#panel-sync.active")
+    page.wait_for_selector("#sync-state-card h2")
     page.click("#settings")
     page.wait_for_selector("#settings-menu:not([hidden])")
     page.click("#change-pin")

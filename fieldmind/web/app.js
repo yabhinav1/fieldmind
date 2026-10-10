@@ -7,8 +7,13 @@ const state = {
   tab: "work",
   mode: "hybrid",
   filter: "all",
+  sort: "relevance",
+  queueTab: "pending",
+  cloudTab: "mine",
   lastEvent: 0,
   firstEvents: true,
+  events: [],
+  unseenEvents: 0,
   query: "",
   previewSeq: 0,
   searchSeq: 0,
@@ -16,6 +21,11 @@ const state = {
 };
 
 const SCOPE = {
+  private: "Private",
+  shared: "Shared",
+  redacted: "Shared, masked",
+};
+const SCOPE_LONG = {
   private: "On this device only",
   shared: "Shared with the fleet",
   redacted: "Shared, personal details masked",
@@ -33,15 +43,12 @@ const RELATION = {
   related: "Related note",
 };
 const PRIORITY = ["Low", "Normal", "Urgent"];
-
-// Inline SVG so the dashboard still loads with no external assets.
-const ICONS = {
-  layers: `<svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/><path d="m3 18 9 5 9-5"/></svg>`,
-  lock: `<svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
-  sync: `<svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M3 21v-5h5"/><path d="M21 3v5h-5"/></svg>`,
-  merge: `<svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9"/><path d="M6 7.5c0 4.5 9.5 2 9.5 4.5"/></svg>`
+const CATEGORY = {
+  safety_hazard: "Safety", equipment_fault: "Fault", procedure_fix: "Fix", routine_reading: "Reading",
+  personal_health: "Personal", people_hr: "People", scratch_note: "Note",
 };
 
+const icon = (name, cls = "icon") => `<svg class="${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 // ---------------------------------------------------------------- helpers
 
@@ -85,6 +92,14 @@ function ago(ts) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+function dateOf(ts) {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  const sameDay = new Date().toDateString() === d.toDateString();
+  return sameDay ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+}
+
 function span(seconds) {
   const s = Math.floor(seconds);
   if (s < 60) return `${s}s`;
@@ -122,6 +137,10 @@ async function attempt(action, button) {
   } finally {
     if (button) button.disabled = false;
   }
+}
+
+function emptyState(iconName, title, text) {
+  return `<div class="empty-state"><span class="empty-icon">${icon(iconName)}</span><b>${esc(title)}</b><span>${esc(text)}</span></div>`;
 }
 
 // ---------------------------------------------------------------- device lock
@@ -177,27 +196,30 @@ async function submitLock(event) {
   $("lock").hidden = true;
   state.lastEvent = 0;
   state.firstEvents = true;
+  state.events = [];
   $("events").innerHTML = "";
   poll();
   refresh();
 }
 
-// ---------------------------------------------------------------- badges
+// ---------------------------------------------------------------- memory items
 
 function badges(m, options = {}) {
   const out = [];
-  if (m.asset) out.push(`<span class="badge asset">${esc(m.asset)}</span>`);
   if (m.source === "replica" || options.cloud) {
     out.push(`<span class="badge replica">${m.via_peer ? `From ${esc(m.via_peer)} nearby` : "From cloud"} · ${esc(m.origin_device || m.device_id || "unknown")}</span>`);
-    if (m.redacted) out.push(`<span class="badge">Details masked</span>`);
+    if (m.redacted) out.push(`<span class="badge redacted">Masked</span>`);
   } else {
     out.push(`<span class="badge ${esc(m.scope)}">${esc(SCOPE[m.scope] || m.scope)}</span>`);
-    if (SYNC[m.sync_state]) out.push(`<span class="badge ${esc(m.sync_state)}">${SYNC[m.sync_state]}</span>`);
+    if (SYNC[m.sync_state] && m.sync_state !== "synced") out.push(`<span class="badge ${esc(m.sync_state)}">${SYNC[m.sync_state]}</span>`);
     if (m.origin_device && m.mine === false) out.push(`<span class="badge">First written on ${esc(m.origin_device)}</span>`);
   }
+  if (m.category && CATEGORY[m.category] && m.kind !== "reference") out.push(`<span class="badge">${CATEGORY[m.category]}</span>`);
+  if (m.kind === "reference") out.push(`<span class="badge">Manual</span>`);
   if (m.priority === 2 && m.scope !== "private") out.push(`<span class="badge urgent">Urgent</span>`);
   if (m.status === "superseded") out.push(`<span class="badge">Replaced</span>`);
   if (m.relation && m.supersedes) out.push(`<span class="badge">${esc(RELATION[m.relation] || "")}</span>`);
+  (m.tags || []).slice(0, 3).forEach((t) => out.push(`<span class="badge">${esc(t)}</span>`));
   return `<div class="badges">${out.join("")}</div>`;
 }
 
@@ -207,54 +229,83 @@ function thumbs(photos, size = "") {
     `<img src="${esc(p.url)}" alt="Photo attached to this note" loading="lazy" width="${p.width}" height="${p.height}">`).join("")}</div>`;
 }
 
+function itemThumb(m) {
+  if (m.photos && m.photos.length) return `<span class="item-thumb"><img src="${esc(m.photos[0].url)}" alt=""></span>`;
+  if (m.kind === "reference") return `<span class="item-thumb manual">${icon("book")}</span>`;
+  if (m.kind === "photo") return `<span class="item-thumb photo">${icon("image")}</span>`;
+  return `<span class="item-thumb">${icon("note")}</span>`;
+}
+
+function itemTitle(m) {
+  if (m.asset) return m.asset;
+  if (m.kind === "reference") return "Manual";
+  return CATEGORY[m.category] ? `${CATEGORY[m.category]} note` : "Note";
+}
+
 function memoryItem(m, extra = "") {
   return `<button class="item ${m.status === "superseded" ? "old" : ""}" data-open="${esc(m.id)}">
-    <p class="item-text">${esc(m.text)}</p>
-    ${thumbs(m.photos)}
-    ${extra}
-    <div class="item-foot">${badges(m)}<span class="when">${ago(m.updated_at)}</span></div>
+    ${itemThumb(m)}
+    <span class="item-main">
+      <span class="item-title">${esc(itemTitle(m))}</span>
+      <p class="item-text">${esc(m.text)}</p>
+      ${extra}
+      ${badges(m)}
+    </span>
+    <span class="item-side"><span class="when">${esc(dateOf(m.updated_at))}</span></span>
   </button>`;
 }
 
 // ---------------------------------------------------------------- status
 
+function initials(author) {
+  const parts = String(author || "").split(/[\s_-]+/).filter(Boolean);
+  const two = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : (parts[0] || "FM").slice(0, 2);
+  return two.toUpperCase();
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  return h < 5 ? "Working late." : h < 12 ? "Good morning." : h < 17 ? "Good to see you back." : "Good evening.";
+}
+
 function renderStatus(s) {
   state.status = s;
   const { link, memory, outbox, device } = s;
   $("device-line").textContent = `${device.id} · ${device.site}`;
+  $("top-device").textContent = `${device.id} · ${device.site}`;
+  $("menu-head").textContent = `${device.author} · ${device.id}`;
+  $("settings").textContent = initials(device.author);
   document.title = `${device.id} · FieldMind`;
+  $("greeting").textContent = greeting();
 
-  const box = document.querySelector(".link-state");
+  const box = $("link");
   box.className = `link-state ${link.online ? "online" : "offline"}`;
-  $("link-title").textContent = link.online ? "Connected to cloud" : "Working offline";
-  if (link.online) {
-    const last = s.sync.last_sync_at;
-    $("link-sub").textContent = last ? `In sync, checked ${ago(last)}` : "Not synced yet";
-  } else if (link.forced_offline) {
-    $("link-sub").textContent = `Network off for ${span(s.now - (link.offline_since || s.now))}`;
-  } else {
-    $("link-sub").textContent = `Cloud unreachable for ${span(s.now - (link.offline_since || s.now))}`;
-  }
+  $("link-title").textContent = link.online ? "Online" : "Offline";
+  const detail = link.online
+    ? (s.sync.last_sync_at ? `In sync, checked ${ago(s.sync.last_sync_at)}` : "Connected, not synced yet")
+    : link.forced_offline ? `Network off for ${span(s.now - (link.offline_since || s.now))}`
+    : `Cloud unreachable for ${span(s.now - (link.offline_since || s.now))}`;
+  box.title = detail;
   $("network-toggle").checked = !link.forced_offline;
   $("auto-sync").checked = link.auto_sync;
   $("sync-now").disabled = !link.online;
 
   const waiting = outbox.pending || 0;
-  const stats = [
-    ["Memories on this device", memory.local + memory.replica, "", `${memory.local} written here · ${memory.replica} from the cloud`, "layers"],
-    ["Kept private", memory.private, "", "never leave the device", "lock"],
-    ["Waiting to sync", waiting, waiting ? "attention" : "", link.online ? "sending now" : "sent when the link returns", "sync"],
-    ["Need a decision", s.open_conflicts, s.open_conflicts ? "alert" : "", "conflicts between devices", "merge"],
-  ];
-  $("stats").innerHTML = stats.map(([label, value, cls, sub, icon]) => `
-    <div class="stat ${cls}">${ICONS[icon]}<div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-sub">${esc(sub)}</div></div>`).join("");
-  $("start-here").hidden = memory.local + memory.replica > 0;
-  document.querySelector(".samples").hidden = !$("start-here").hidden;
-
   const attention = waiting + s.open_conflicts;
   $("tab-sync-count").textContent = attention ? String(attention) : "";
 
   const disk = s.shards.local.disk_bytes + s.shards.replica.disk_bytes;
+  const rows = [
+    ["wifi", "Network", link.online ? `<span class="ok">Online</span>` : `<span class="warn">${link.forced_offline ? "Switched off" : "Unreachable"}</span>`],
+    ["clock", "Last sync", s.sync.last_sync_at ? esc(ago(s.sync.last_sync_at)) : "never"],
+    ["list", "Pending items", waiting ? `<span class="warn">${waiting}</span>` : "0"],
+    ["merge", "Need a decision", s.open_conflicts ? `<span class="warn">${s.open_conflicts}</span>` : "0"],
+    ["layers", "Memories", `${memory.local + memory.replica} <span class="hint">· ${memory.private} private</span>`],
+    ["disk", "Storage used", esc(bytes(disk))],
+  ];
+  $("device-status").innerHTML = rows.map(([i, label, value]) =>
+    `<div class="status-row">${icon(i)}<span>${label}</span><b>${value}</b></div>`).join("");
+
   $("engine").innerHTML = `<p class="hint">Everything below runs inside this device's process. Nothing here needs a network.</p>
     <dl class="kv">
       <dt>Vector store</dt><dd>${esc(s.engine.vector_store)}</dd>
@@ -277,6 +328,20 @@ function renderStatus(s) {
   if (state.guideOpen) renderGuide();
 }
 
+const EVENT_ICON = { capture: "note", sync: "cloud-check", link: "wifi", conflict: "merge", merge: "merge", edit: "work",
+  delete: "note", security: "lock", system: "cog", answer: "search", demo: "check", peer: "users", dedupe: "note" };
+
+function renderRecent() {
+  const events = state.events.slice(0, 6);
+  $("recent").innerHTML = events.length ? events.map((e) => `
+    <div class="recent-item">
+      <span class="recent-icon ${esc(e.level)}">${icon(EVENT_ICON[e.type] || "note")}</span>
+      <div><div class="recent-title">${esc(e.message.split(":")[0].slice(0, 60))}</div>
+        <div class="recent-sub">${esc(e.message.includes(":") ? e.message.slice(e.message.indexOf(":") + 1).trim() : "")}</div></div>
+      <span class="when">${ago(e.ts)}</span>
+    </div>`).join("") : emptyState("inbox", "Nothing yet", "What the device decides and does shows up here.");
+}
+
 function renderEvents(events) {
   if (!events.length) return;
   const box = $("events");
@@ -288,6 +353,9 @@ function renderEvents(events) {
     </div>`).reverse().join("");
   box.insertAdjacentHTML("afterbegin", html);
   while (box.children.length > 150) box.lastElementChild.remove();
+  state.events = [...events].reverse().concat(state.events).slice(0, 150);
+  if (fresh && $("activity-drawer").hidden) { state.unseenEvents += events.length; $("activity-pip").hidden = false; }
+  renderRecent();
   if (events.some((e) => e.message.includes("cloud snapshot"))) seen("snapshot", true);
   if (events.some((e) => e.type === "conflict")) seen("conflict", true);
   state.lastEvent = events[events.length - 1].id;
@@ -304,23 +372,29 @@ async function poll() {
     renderStatus(status);
     const changed = log.events.length > 0 && !state.firstEvents;
     renderEvents(log.events);
+    if (state.firstEvents) renderRecent();
     state.firstEvents = false;
     if (changed) refresh();
   } catch (error) {
     if (state.locked) return;
+    $("link").className = "link-state offline";
     $("link-title").textContent = "Device not responding";
-    $("link-sub").textContent = "Is the FieldMind process running?";
   }
 }
 
 function refresh() {
-  if (state.tab === "memory") loadMemory();
+  if (state.tab === "memory") { if (state.query) runSearch(false); else loadMemory(); }
   if (state.tab === "sync") loadSync();
   if (state.tab === "cloud") { loadCloud(); seen("cloud", true); }
-  if (state.tab === "work" && state.query) runSearch(false);
 }
 
 // ---------------------------------------------------------------- capture
+
+function openComposer() {
+  $("composer").hidden = false;
+  $("note").focus();
+  $("composer").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
 
 let previewTimer;
 function schedulePreview() {
@@ -358,7 +432,7 @@ async function loadPreview() {
   box.className = `preview ${d.scope}`;
   box.innerHTML = `
     <div class="preview-head">
-      <span class="preview-title">${esc(SCOPE[d.scope])}</span>
+      <span class="preview-title">${esc(SCOPE_LONG[d.scope])}</span>
       <span class="badges">
         <span class="badge">${esc(d.category_label)}</span>
         ${d.scope !== "private" ? `<span class="badge ${d.priority === 2 ? "urgent" : ""}">${PRIORITY[d.priority]} priority</span>` : ""}
@@ -428,14 +502,15 @@ async function saveNote(allowDuplicate = false) {
   poll();
 }
 
-// ---------------------------------------------------------------- search
+// ---------------------------------------------------------------- memory: search and browse
 
 async function runSearch(withAnswer = true) {
   const query = state.query;
   if (!query) return;
   const seq = ++state.searchSeq;
   seen("search", true);
-  const body = { query, mode: state.mode, limit: 8, include_superseded: $("include-old").checked, rerank: $("rerank").checked };
+  $("memory-list").hidden = true;
+  const body = { query, mode: state.mode, limit: 12, include_superseded: $("include-old").checked, rerank: $("rerank").checked };
   if (withAnswer) {
     $("answer").innerHTML = `<div class="answer pending"><div class="answer-head">Working out an answer on this device…</div></div>`;
     api("/api/ask", { method: "POST", body: { question: query } })
@@ -448,15 +523,16 @@ async function runSearch(withAnswer = true) {
   const t = found.timing_ms;
   const total = found.searched.local + found.searched.replica;
   $("search-meta").innerHTML =
-    `Searched ${total} memories on this device in <b>${t.total} ms</b> · <b>${found.network_calls} network calls</b>${found.reranked ? " · question and notes read together" : ""}`;
+    `${found.results.length} result${found.results.length === 1 ? "" : "s"} · searched ${total} memories in <b>${t.total} ms</b> · <b>${found.network_calls} network calls</b>${found.reranked ? " · question and notes read together" : ""}`;
 
+  const results = state.sort === "newest" ? [...found.results].sort((a, b) => b.updated_at - a.updated_at) : found.results;
   const SIGNAL = { semantic: "Meaning", keyword: "Keywords", rerank: "Read together", image: "Photo" };
-  $("results").innerHTML = found.results.length ? found.results.map((r) => {
+  $("results").innerHTML = results.length ? results.map((r) => {
     const parts = Object.keys(SIGNAL).filter((k) => r.strength[k] !== undefined).map((k) =>
       `<span class="signal" title="${SIGNAL[k]} match: ${r.matched[k].toFixed(2)}">${SIGNAL[k]}
         <span class="bar"><span style="width:${Math.round(r.strength[k] * 100)}%"></span></span></span>`);
     return memoryItem(r, `<div class="signals">${parts.join("")}</div>`);
-  }).join("") : `<div class="empty-state">Nothing in device memory matches that.</div>`;
+  }).join("") : emptyState("search", "Nothing matches that", "Try other words, or switch to Keywords in the search options.");
 }
 
 function renderAnswer(answer) {
@@ -474,11 +550,17 @@ function renderAnswer(answer) {
     ${answer.note ? `<div class="answer-note">${esc(answer.note)}</div>` : ""}</div>`;
 }
 
-// ---------------------------------------------------------------- memory
+function clearSearch() {
+  state.query = "";
+  $("results").innerHTML = ""; $("answer").innerHTML = ""; $("search-meta").innerHTML = "";
+  $("memory-list").hidden = false;
+  loadMemory();
+}
 
 const FILTERS = [
   ["all", "All", {}, (m) => m.local + m.replica],
-  ["local", "Written here", { source: "local" }, (m) => m.local],
+  ["local", "Notes", { source: "local" }, (m) => m.local],
+  ["manuals", "Manuals", { kind: "reference" }, () => null],
   ["replica", "From cloud", { source: "replica" }, (m) => m.replica],
   ["private", "Private", { scope: "private" }, (m) => m.private],
   ["pending", "Waiting to sync", { sync_state: "pending" }, (m) => m.pending],
@@ -489,8 +571,10 @@ const FILTERS = [
 function renderFilters() {
   const memory = state.status?.memory;
   if (!memory) return;
-  $("memory-filters").innerHTML = FILTERS.map(([key, label, , count]) =>
-    `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}<span>${count(memory)}</span></button>`).join("");
+  $("memory-filters").innerHTML = FILTERS.map(([key, label, , count]) => {
+    const n = count(memory);
+    return `<button class="chip ${state.filter === key ? "active" : ""}" data-filter="${key}">${label}${n === null ? "" : `<span>${n}</span>`}</button>`;
+  }).join("");
 }
 
 async function loadMemory() {
@@ -499,12 +583,13 @@ async function loadMemory() {
   if (text) params.set("text", text);
   const data = await api(`/api/memories?${params}`).catch(() => null);
   if (!data) return;
+  if (!state.query) $("search-meta").innerHTML = `${data.total} memor${data.total === 1 ? "y" : "ies"} on this device`;
   $("memory-list").innerHTML = data.items.length
     ? data.items.map((m) => memoryItem(m)).join("")
-    : `<div class="empty-state">No memories here yet.</div>`;
+    : emptyState("memory", "No memories here yet", "Record a note on the Work page, or publish headquarters manuals to the cloud.");
 }
 
-// ---------------------------------------------------------------- drawer
+// ---------------------------------------------------------------- drawers
 
 async function openMemory(id) {
   const data = await attempt(() => api(`/api/memories/${id}`));
@@ -521,7 +606,7 @@ async function openMemory(id) {
   const scopeValue = m.scope === "redacted" ? "shared" : m.scope;
 
   $("drawer-body").innerHTML = `
-    <div class="drawer-head"><h2>Memory</h2><button class="btn ghost small" data-close>Close</button></div>
+    <div class="drawer-head"><h2>${esc(itemTitle(m))}</h2><button class="btn ghost small" data-close>Close</button></div>
     ${badges(m)}
     ${thumbs(m.photos, "large")}
     <div class="field"><label for="edit-text">Note</label><textarea id="edit-text" rows="5">${esc(m.text)}</textarea></div>
@@ -563,6 +648,8 @@ async function openMemory(id) {
 }
 
 function closeDrawer() { $("drawer").hidden = true; state.guideOpen = false; }
+function openActivity() { $("activity-drawer").hidden = false; $("activity-pip").hidden = true; state.unseenEvents = 0; }
+function closeActivity() { $("activity-drawer").hidden = true; }
 
 function openPinChange() {
   state.guideOpen = false;
@@ -594,285 +681,6 @@ function openPinChange() {
     toast("PIN changed.");
   };
 }
-
-// ---------------------------------------------------------------- demo guide
-
-const GUIDE = [
-  { title: "Bring headquarters knowledge onto the device",
-    text: "Headquarters publishes manuals to the cloud. The device pulls them into its replica shard.",
-    done: (s) => s.memory.replica > 0, action: ["Publish manuals", "seed-cloud"] },
-  { title: "Lose the network",
-    text: "Turn the Network switch off at the top. The device keeps everything it already has.",
-    done: () => seen("offline") },
-  { title: "Record notes while offline",
-    text: "Write your own note, or load samples. Watch the activity log: each note is kept private, shared, or shared with names masked.",
-    done: (s) => s.memory.local > 0, action: ["Load sample notes", "seed"] },
-  { title: "Search and ask with no network",
-    text: "Try: is a vibration of 7.2 mm/s acceptable. Results come back in about a millisecond with 0 network calls.",
-    done: () => seen("search") },
-  { title: "Reconnect and sync",
-    text: "Turn Network back on. The queue on the Sync tab drains, urgent notes first.",
-    done: (s) => s.link.online && s.outbox.done > 0 && s.outbox.pending === 0 },
-  { title: "Check what actually left the device",
-    text: "Open the Cloud tab. Private notes are absent; names and phone numbers are masked.",
-    done: () => seen("cloud") },
-  { title: "Make two devices disagree",
-    text: "Stage it in one click: another device's edit lands in the cloud while this one edits the same note differently. Or do it by hand with two browsers. Either way the Sync tab shows both versions and nothing is overwritten.",
-    done: (s) => s.open_conflicts > 0 || s.sync.totals.conflicts > 0 || seen("conflict"), action: ["Stage a conflict", "stage-conflict"] },
-  { title: "Restore the replica from a cloud snapshot",
-    text: "On the Sync tab, choose Rebuild cloud replica. The device downloads one Qdrant Server snapshot. Private notes are untouched.",
-    done: () => seen("snapshot") },
-];
-
-function renderGuide(force = false) {
-  const s = state.status;
-  if (!s) return;
-  const done = GUIDE.map((step) => Boolean(step.done(s)));
-  const key = done.join("");
-  // Re-render only when something changed, so the reveal and the tick animations
-  // play once rather than on every poll.
-  if (!force && key === state.guideKey) return;
-  const before = state.guideKey || "";
-  state.guideKey = key;
-  const next = done.indexOf(false);
-  const steps = GUIDE.map((step, i) => `
-    <div class="guide-step ${done[i] ? "done" : i === next ? "next" : ""} ${done[i] && before[i] === "0" ? "just-done" : ""} ${force ? "reveal" : ""}" style="--i:${i}">
-      <span class="guide-mark">${done[i] ? "✓" : i + 1}</span>
-      <div><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p>
-        ${step.action && !done[i] ? `<button class="btn small" data-guide="${step.action[1]}">${esc(step.action[0])}</button>` : ""}
-      </div>
-    </div>`).join("");
-  $("drawer-body").innerHTML = `
-    <div class="drawer-head"><h2>Demo guide</h2><button class="btn ghost small" data-close>Close</button></div>
-    <p class="guide-progress">${done.filter(Boolean).length} of ${GUIDE.length} done on ${esc(s.device.id)}. Steps tick themselves off as you go.</p>
-    ${steps}`;
-}
-
-function openGuide() {
-  state.guideOpen = true;
-  renderGuide(true);
-  $("drawer").hidden = false;
-}
-
-// ---------------------------------------------------------------- sync
-
-function diff(text, other) {
-  const seen = new Set(other.toLowerCase().split(/\s+/));
-  return text.split(/(\s+)/).map((word) =>
-    !word.trim() || seen.has(word.toLowerCase()) ? esc(word) : `<mark>${esc(word)}</mark>`).join("");
-}
-
-async function loadSync() {
-  const data = await api("/api/sync").catch(() => null);
-  if (!data) return;
-  const OPS = { upsert: "Send", delete: "Delete", retract: "Withdraw" };
-
-  const pending = data.outbox.filter((o) => o.state === "pending");
-  const failed = data.outbox.filter((o) => o.state === "failed");
-  const queueItem = (o, i) => `
-      <div class="queue-item ${o.state === "failed" ? "failed" : ""}">
-        <span class="order">${o.state === "failed" ? "!" : i + 1}</span>
-        <div><div>${esc(o.text || "(removed note)")}</div>
-          <div class="when">${OPS[o.op]} · queued ${ago(o.created_at)}${o.last_error ? ` · ${esc(o.last_error)}` : ""}</div></div>
-        <span class="badge ${o.priority === 2 ? "urgent" : ""}">${PRIORITY[o.priority]}</span>
-      </div>`;
-  $("outbox").innerHTML = (pending.length ? pending.map(queueItem).join("")
-    : `<div class="empty-state">Nothing waiting. This device and the cloud agree.</div>`)
-    + (failed.length ? `<div class="notice warn" style="margin-top:10px">${failed.length} change${failed.length === 1 ? "" : "s"}
-        set aside after repeated failures. <button class="link-btn" id="retry-failed">Try again</button></div>${failed.map(queueItem).join("")}` : "");
-  if (failed.length) {
-    $("retry-failed").onclick = async (event) => {
-      const result = await attempt(() => api("/api/sync/retry", { method: "POST" }), event.target);
-      if (result) { toast(`Retrying ${result.retried}.`); poll(); loadSync(); }
-    };
-  }
-
-  const t = data.totals;
-  const link = data.link;
-  const peers = (link.peers || []).map((p) => p.device
-    ? `${esc(p.device)} · ${p.received} received · seen ${ago(p.at)}`
-    : `${esc(p.url)} · not reached yet`).join("<br>");
-  $("sync-summary").innerHTML = `<dl class="kv">
-    <dt>Cloud</dt><dd class="mono">${esc(link.cloud_url)}</dd>
-    <dt>Link</dt><dd>${link.online ? "Up" : link.forced_offline ? "Network off on this device" : "Cloud unreachable"}</dd>
-    ${peers ? `<dt>Nearby devices</dt><dd>${peers}<div class="hint">Consulted over the local network when the cloud is out of reach.</div></dd>` : ""}
-    <dt>Successful syncs</dt><dd>${t.runs}</dd>
-    <dt>Sent</dt><dd>${t.pushed} memories · ${bytes(t.bytes_up)}</dd>
-    <dt>Received</dt><dd>${t.pulled} memories · ${bytes(t.bytes_down)}</dd>
-    <dt>Merged automatically</dt><dd>${t.merged}</dd>
-    <dt>Conflicts raised</dt><dd>${t.conflicts}</dd>
-  </dl>`;
-
-  $("conflicts").innerHTML = data.conflicts.length ? data.conflicts.map((c) => {
-    const mine = c.local_payload, theirs = c.cloud_payload, base = c.base_payload;
-    return `<div class="conflict-card" data-conflict="${c.id}">
-      <div class="badges"><span class="badge conflict">Both changed: ${esc(c.fields.join(", "))}</span>
-        ${mine.asset ? `<span class="badge asset">${esc(mine.asset)}</span>` : ""}
-        <span class="when">found ${ago(c.detected_at)}</span></div>
-      <div class="versions">
-        <div class="version"><h3>This device</h3>${diff(mine.text || "", theirs.text || "")}</div>
-        <div class="version"><h3>${esc(theirs.device_id)}, already in the cloud</h3>${diff(theirs.text || "", mine.text || "")}</div>
-      </div>
-      ${base ? `<div class="base">Both started from: “${esc(base.text)}”</div>` : ""}
-      <div class="row wrap">
-        <button class="btn small" data-resolve="mine">Keep mine</button>
-        <button class="btn small" data-resolve="theirs">Accept theirs</button>
-        <button class="btn small" data-resolve="both">Keep both</button>
-        <button class="btn small" data-combine>Combine…</button>
-      </div>
-      <div class="combine" hidden>
-        <div class="field"><label>Combined note</label><textarea rows="3">${esc(mine.text || "")}</textarea></div>
-        <div class="row"><button class="btn small primary" data-resolve="merge">Save combined note</button></div>
-      </div>
-    </div>`;
-  }).join("") : `<div class="empty-state">No conflicts.</div>`;
-
-  $("runs").innerHTML = data.runs.length ? `<table>
-    <thead><tr><th>When</th><th>Started by</th><th>Result</th><th class="num">Sent</th><th class="num">Received</th>
-      <th class="num">Merged</th><th class="num">Conflicts</th><th class="num">Data moved</th></tr></thead>
-    <tbody>${data.runs.map((r) => `<tr>
-      <td>${clock(r.started_at)}</td><td>${esc(r.trigger)}</td>
-      <td><span class="badge ${r.status === "ok" ? "synced" : "conflict"}">${r.status === "ok" ? "Done" : esc(r.status)}</span></td>
-      <td class="num">${r.pushed}</td><td class="num">${r.pulled}</td><td class="num">${r.merged}</td>
-      <td class="num">${r.conflicts}</td><td class="num">${bytes(r.bytes_up + r.bytes_down)}</td></tr>`).join("")}
-    </tbody></table>` : `<div class="empty-state">No sync has run yet.</div>`;
-}
-
-// ---------------------------------------------------------------- cloud
-
-async function loadCloud() {
-  const data = await api("/api/cloud").catch(() => null);
-  if (!data) return;
-  const memory = state.status?.memory || {};
-  if (!data.online) {
-    $("cloud-hint").textContent = "The cloud cannot be reached right now.";
-    $("cloud-compare").innerHTML = "";
-    $("cloud-list").innerHTML = `<div class="empty-state">This device is working from its own memory.
-      Everything on the Work tab still runs. The cloud view returns when the link is up.</div>`;
-    return;
-  }
-  $("cloud-hint").textContent = "Read live from the cloud. Private notes never appear here.";
-  $("cloud-compare").innerHTML = `
-    <span class="badge replica">${data.total} in the cloud</span>
-    <span class="badge private">${memory.private ?? 0} kept only on this device</span>
-    <span class="badge pending">${memory.pending ?? 0} waiting to sync</span>`;
-  $("cloud-list").innerHTML = data.items.length ? data.items.map((m) => `
-    <div class="item static">
-      <p class="item-text">${esc(m.text)}</p>
-      <div class="item-foot">${badges({ ...m, source: "replica" }, { cloud: true })}
-        <span class="when">rev ${m.rev} · ${ago(m.updated_at)}</span></div>
-    </div>`).join("") : `<div class="empty-state">The cloud is empty.</div>`;
-}
-
-// ---------------------------------------------------------------- wiring
-
-function showTab(tab) {
-  if (!document.getElementById(`panel-${tab}`)) tab = "work";
-  state.tab = tab;
-  if (location.hash.slice(1) !== tab) history.replaceState(null, "", `#${tab}`);
-  document.querySelectorAll(".tab").forEach((el) => el.classList.toggle("active", el.dataset.tab === tab));
-  document.querySelectorAll(".panel").forEach((el) => el.classList.toggle("active", el.id === `panel-${tab}`));
-  refresh();
-}
-
-$("tabs").addEventListener("click", (event) => {
-  const tab = event.target.closest(".tab");
-  if (tab) showTab(tab.dataset.tab);
-});
-
-$("note").addEventListener("input", schedulePreview);
-$("scope-override").addEventListener("change", loadPreview);
-$("add-photo").addEventListener("click", () => $("photo-file").click());
-$("photo-file").addEventListener("change", (event) => setPhoto(event.target.files[0]));
-$("save-note").addEventListener("click", () => saveNote(false));
-$("note").addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) saveNote(false);
-});
-
-$("search-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  state.query = $("query").value.trim();
-  if (!state.query) { $("results").innerHTML = ""; $("answer").innerHTML = ""; $("search-meta").innerHTML = ""; return; }
-  runSearch(true);
-});
-$("mode").addEventListener("click", (event) => {
-  const button = event.target.closest("button");
-  if (!button) return;
-  state.mode = button.dataset.mode;
-  document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("active", b === button));
-  runSearch(false);
-});
-$("include-old").addEventListener("change", () => runSearch(false));
-$("rerank").addEventListener("change", () => runSearch(false));
-
-$("memory-filters").addEventListener("click", (event) => {
-  const chip = event.target.closest(".chip");
-  if (!chip) return;
-  state.filter = chip.dataset.filter;
-  renderFilters();
-  loadMemory();
-});
-let filterTimer;
-$("memory-text").addEventListener("input", () => { clearTimeout(filterTimer); filterTimer = setTimeout(loadMemory, 200); });
-
-document.addEventListener("click", (event) => {
-  const open = event.target.closest("[data-open]");
-  if (open) { state.guideOpen = false; return openMemory(open.dataset.open); }
-  const guided = event.target.closest("[data-guide]");
-  if (guided) return $(guided.dataset.guide).click();
-  const focus = event.target.closest("[data-focus]");
-  if (focus) return $(focus.dataset.focus).focus();
-  if (event.target.closest("[data-close]") || event.target === $("drawer")) return closeDrawer();
-
-  const combine = event.target.closest("[data-combine]");
-  if (combine) {
-    combine.closest(".conflict-card").querySelector(".combine").hidden = false;
-    return;
-  }
-  const resolve = event.target.closest("[data-resolve]");
-  if (resolve) {
-    const card = resolve.closest(".conflict-card");
-    const body = { choice: resolve.dataset.resolve };
-    if (body.choice === "merge") body.text = card.querySelector("textarea").value;
-    attempt(() => api(`/api/conflicts/${card.dataset.conflict}/resolve`, { method: "POST", body }), resolve)
-      .then((done) => { if (done) { toast("Decision saved."); poll(); loadSync(); } });
-  }
-});
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
-
-$("network-toggle").addEventListener("change", async (event) => {
-  await attempt(() => api("/api/link/offline", { method: "POST", body: { value: !event.target.checked } }));
-  poll();
-});
-$("auto-sync").addEventListener("change", (event) =>
-  attempt(() => api("/api/sync/auto", { method: "POST", body: { value: event.target.checked } })));
-
-$("sync-now").addEventListener("click", async (event) => {
-  const result = await attempt(() => api("/api/sync/run", { method: "POST" }), event.target);
-  if (!result) return;
-  if (result.status === "offline") toast("The cloud cannot be reached. Changes stay queued.");
-  else if (result.status === "failed") toast(`Sync failed: ${result.error}`);
-  else if (result.status === "ok") toast(`Sent ${result.pushed}, received ${result.pulled}.`);
-  poll();
-});
-$("rebuild").addEventListener("click", async (event) => {
-  const result = await attempt(() => api("/api/replica/rebuild", { method: "POST" }), event.target);
-  if (result) { toast(`Replica cleared (${result.cleared}) and refilled.`); poll(); }
-});
-
-$("seed").addEventListener("click", async (event) => {
-  const result = await attempt(() => api("/api/demo/seed", { method: "POST" }), event.target);
-  if (result) { toast(`Added ${result.created} sample notes.`); poll(); }
-});
-$("stage-conflict").addEventListener("click", async (event) => {
-  const result = await attempt(() => api("/api/demo/conflict", { method: "POST" }), event.target);
-  if (!result) return;
-  toast(`${result.other_device} and this device now disagree. See Needs a decision.`);
-  seen("conflict", true);
-  closeDrawer();
-  showTab("sync");
-  poll();
-});
 
 function openBackup() {
   state.guideOpen = false;
@@ -925,25 +733,370 @@ function openRestore() {
     poll(); refresh();
   };
 }
-$("backup").addEventListener("click", () => { closeMenu(); openBackup(); });
-$("restore").addEventListener("click", () => { closeMenu(); openRestore(); });
 
+// ---------------------------------------------------------------- demo guide
+
+const GUIDE = [
+  { title: "Bring headquarters knowledge onto the device",
+    text: "Headquarters publishes manuals to the cloud. The device pulls them into its replica shard.",
+    done: (s) => s.memory.replica > 0, action: ["Publish manuals", "seed-cloud"] },
+  { title: "Lose the network",
+    text: "Turn the Network switch off at the top. The device keeps everything it already has.",
+    done: () => seen("offline") },
+  { title: "Record notes while offline",
+    text: "Write your own note, or load samples. Watch the activity: each note is kept private, shared, or shared with names masked.",
+    done: (s) => s.memory.local > 0, action: ["Load sample notes", "seed"] },
+  { title: "Search and ask with no network",
+    text: "On the Memory page try: is a vibration of 7.2 mm/s acceptable. Results come back in about a millisecond with 0 network calls.",
+    done: () => seen("search") },
+  { title: "Reconnect and sync",
+    text: "Turn Network back on. The queue on the Sync page drains, urgent notes first.",
+    done: (s) => s.link.online && s.outbox.done > 0 && s.outbox.pending === 0 },
+  { title: "Check what actually left the device",
+    text: "Open the Cloud page. Private notes are absent; names and phone numbers are masked.",
+    done: () => seen("cloud") },
+  { title: "Make two devices disagree",
+    text: "Stage it in one click: another device's edit lands in the cloud while this one edits the same note differently. Or do it by hand with two browsers. Either way the Sync page shows both versions and nothing is overwritten.",
+    done: (s) => s.open_conflicts > 0 || s.sync.totals.conflicts > 0 || seen("conflict"), action: ["Stage a conflict", "stage-conflict"] },
+  { title: "Restore the replica from a cloud snapshot",
+    text: "On the Sync page, choose Rebuild cloud replica. The device downloads one Qdrant Server snapshot. Private notes are untouched.",
+    done: () => seen("snapshot") },
+];
+
+function renderGuide(force = false) {
+  const s = state.status;
+  if (!s) return;
+  const done = GUIDE.map((step) => Boolean(step.done(s)));
+  const key = done.join("");
+  if (!force && key === state.guideKey) return;
+  const before = state.guideKey || "";
+  state.guideKey = key;
+  const next = done.indexOf(false);
+  const steps = GUIDE.map((step, i) => `
+    <div class="guide-step ${done[i] ? "done" : i === next ? "next" : ""} ${done[i] && before[i] === "0" ? "just-done" : ""} ${force ? "reveal" : ""}" style="--i:${i}">
+      <span class="guide-mark">${done[i] ? "✓" : i + 1}</span>
+      <div><h3>${esc(step.title)}</h3><p>${esc(step.text)}</p>
+        ${step.action && !done[i] ? `<button class="btn small" data-guide="${step.action[1]}">${esc(step.action[0])}</button>` : ""}
+      </div>
+    </div>`).join("");
+  $("drawer-body").innerHTML = `
+    <div class="drawer-head"><h2>Demo guide</h2><button class="btn ghost small" data-close>Close</button></div>
+    <p class="guide-progress">${done.filter(Boolean).length} of ${GUIDE.length} done on ${esc(s.device.id)}. Steps tick themselves off as you go.</p>
+    ${steps}`;
+}
+
+function openGuide() {
+  closeMenu();
+  state.guideOpen = true;
+  renderGuide(true);
+  $("drawer").hidden = false;
+}
+
+// ---------------------------------------------------------------- sync
+
+function diff(text, other) {
+  const seenWords = new Set(other.toLowerCase().split(/\s+/));
+  return text.split(/(\s+)/).map((word) =>
+    !word.trim() || seenWords.has(word.toLowerCase()) ? esc(word) : `<mark>${esc(word)}</mark>`).join("");
+}
+
+function showQueue(tab) {
+  state.queueTab = tab;
+  document.querySelectorAll("#queue-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.queue === tab));
+  $("outbox").hidden = tab !== "pending";
+  $("runs").hidden = tab !== "synced";
+  $("conflicts").hidden = tab !== "conflicts";
+}
+
+async function loadSync() {
+  const data = await api("/api/sync").catch(() => null);
+  if (!data) return;
+  const OPS = { upsert: "Send", delete: "Delete", retract: "Withdraw", photo: "Send photo", photo_delete: "Remove photo" };
+  const link = data.link;
+  const pending = data.outbox.filter((o) => o.state === "pending");
+  const failed = data.outbox.filter((o) => o.state === "failed");
+  const conflicts = data.conflicts.length;
+
+  let cls = "", iconName = "cloud-check", title = "All caught up", text = "Your notes are synced with the cloud.";
+  if (!link.online) { cls = "offline"; iconName = "cloud-off"; title = "Working offline"; text = `${pending.length} change${pending.length === 1 ? "" : "s"} waiting. Everything syncs when the link returns.`; }
+  else if (conflicts) { cls = "attention"; iconName = "merge"; title = `${conflicts} need${conflicts === 1 ? "s" : ""} a decision`; text = "Two devices changed the same note. Nothing was overwritten; choose below."; }
+  else if (failed.length) { cls = "attention"; iconName = "sync"; title = `${failed.length} set aside`; text = "A change kept failing while the cloud was up. Retry it from the queue."; }
+  else if (pending.length) { cls = ""; iconName = "sync"; title = `${pending.length} change${pending.length === 1 ? "" : "s"} waiting`; text = "Sending now, urgent notes first."; }
+  $("sync-state-card").className = `card sync-state ${cls}`;
+  $("sync-state-card").innerHTML = `<span class="big-icon">${icon(iconName)}</span>
+    <div><h2>${esc(title)}</h2><p>${esc(text)}</p></div>
+    <button class="btn primary small" id="sync-now-2" ${link.online ? "" : "disabled"}>Sync now</button>`;
+  $("sync-now-2").onclick = () => $("sync-now").click();
+
+  $("q-pending").textContent = `(${pending.length + failed.length})`;
+  $("q-conflicts").textContent = `(${conflicts})`;
+
+  const queueItem = (o, i) => `
+      <div class="queue-item ${o.state === "failed" ? "failed" : ""}">
+        <span class="order">${o.state === "failed" ? "!" : i + 1}</span>
+        <div><div>${esc(o.text || "(removed note)")}</div>
+          <div class="when">${OPS[o.op] || o.op} · queued ${ago(o.created_at)}${o.last_error ? ` · ${esc(o.last_error)}` : ""}</div></div>
+        <span class="badge ${o.priority === 2 ? "urgent" : ""}">${PRIORITY[o.priority]}</span>
+      </div>`;
+  $("outbox").innerHTML = (pending.length ? pending.map(queueItem).join("")
+    : emptyState("inbox", "No pending items", link.online ? "Everything is synced. New notes will appear here when you're offline." : "New notes will wait here until the link returns."))
+    + (failed.length ? `<div class="notice warn" style="margin-top:10px">${failed.length} change${failed.length === 1 ? "" : "s"}
+        set aside after repeated failures. <button class="link-btn" id="retry-failed">Try again</button></div>${failed.map(queueItem).join("")}` : "");
+  if (failed.length) {
+    $("retry-failed").onclick = async (event) => {
+      const result = await attempt(() => api("/api/sync/retry", { method: "POST" }), event.target);
+      if (result) { toast(`Retrying ${result.retried}.`); poll(); loadSync(); }
+    };
+  }
+
+  const t = data.totals;
+  const peers = (link.peers || []).map((p) => p.device
+    ? `${esc(p.device)} · ${p.received} received · seen ${ago(p.at)}`
+    : `${esc(p.url)} · not reached yet`).join("<br>");
+  $("sync-summary").innerHTML = `<dl class="kv">
+    <dt>Cloud</dt><dd class="mono">${esc(link.cloud_url)}</dd>
+    <dt>Link</dt><dd>${link.online ? "Up" : link.forced_offline ? "Network off on this device" : "Cloud unreachable"}</dd>
+    ${peers ? `<dt>Nearby devices</dt><dd>${peers}<div class="hint">Consulted over the local network when the cloud is out of reach.</div></dd>` : ""}
+    <dt>Successful syncs</dt><dd>${t.runs}</dd>
+    <dt>Sent</dt><dd>${t.pushed} memories · ${bytes(t.bytes_up)}</dd>
+    <dt>Received</dt><dd>${t.pulled} memories · ${bytes(t.bytes_down)}</dd>
+    <dt>Merged automatically</dt><dd>${t.merged}</dd>
+    <dt>Conflicts raised</dt><dd>${t.conflicts}</dd>
+  </dl>`;
+
+  $("conflicts").innerHTML = data.conflicts.length ? data.conflicts.map((c) => {
+    const mine = c.local_payload, theirs = c.cloud_payload, base = c.base_payload;
+    return `<div class="conflict-card" data-conflict="${c.id}">
+      <div class="badges"><span class="badge conflict">Both changed: ${esc(c.fields.join(", "))}</span>
+        ${mine.asset ? `<span class="badge asset">${esc(mine.asset)}</span>` : ""}
+        <span class="when">found ${ago(c.detected_at)}</span></div>
+      <div class="versions">
+        <div class="version"><h3>This device</h3>${diff(mine.text || "", theirs.text || "")}</div>
+        <div class="version"><h3>${esc(theirs.device_id)}, already in the cloud</h3>${diff(theirs.text || "", mine.text || "")}</div>
+      </div>
+      ${base ? `<div class="base">Both started from: “${esc(base.text)}”</div>` : ""}
+      <div class="row wrap">
+        <button class="btn small" data-resolve="mine">Keep mine</button>
+        <button class="btn small" data-resolve="theirs">Accept theirs</button>
+        <button class="btn small" data-resolve="both">Keep both</button>
+        <button class="btn small" data-combine>Combine…</button>
+      </div>
+      <div class="combine" hidden>
+        <div class="field"><label>Combined note</label><textarea rows="3">${esc(mine.text || "")}</textarea></div>
+        <div class="row"><button class="btn small primary" data-resolve="merge">Save combined note</button></div>
+      </div>
+    </div>`;
+  }).join("") : emptyState("check", "No conflicts", "When two devices change the same note differently, both versions show up here.");
+
+  $("runs").innerHTML = data.runs.length ? `<table>
+    <thead><tr><th>When</th><th>Started by</th><th>Result</th><th class="num">Sent</th><th class="num">Received</th>
+      <th class="num">Merged</th><th class="num">Conflicts</th><th class="num">Data moved</th></tr></thead>
+    <tbody>${data.runs.map((r) => `<tr>
+      <td>${clock(r.started_at)}</td><td>${esc(r.trigger)}</td>
+      <td><span class="badge ${r.status === "ok" ? "synced" : "conflict"}">${r.status === "ok" ? "Done" : esc(r.status)}</span></td>
+      <td class="num">${r.pushed}</td><td class="num">${r.pulled}</td><td class="num">${r.merged}</td>
+      <td class="num">${r.conflicts}</td><td class="num">${bytes(r.bytes_up + r.bytes_down)}</td></tr>`).join("")}
+    </tbody></table>` : emptyState("sync", "No sync has run yet", "Each completed sync is listed here with what moved.");
+  showQueue(state.queueTab);
+}
+
+// ---------------------------------------------------------------- cloud
+
+function showCloudTab(tab) {
+  state.cloudTab = tab;
+  document.querySelectorAll("#cloud-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.cloud === tab));
+  renderCloudList();
+}
+
+function renderCloudList() {
+  const data = state.cloud;
+  if (!data) return;
+  const me = state.status?.device.id;
+  const items = data.items.filter((m) =>
+    state.cloudTab === "mine" ? m.origin_device === me : state.cloudTab === "redacted" ? Boolean(m.redacted) : true);
+  $("cloud-list").innerHTML = items.length ? items.map((m) => `
+    <div class="item static">
+      ${itemThumb(m)}
+      <span class="item-main">
+        <span class="item-title">${esc(itemTitle(m))}</span>
+        <p class="item-text">${esc(m.text)}</p>
+        ${badges({ ...m, source: "replica" }, { cloud: true })}
+      </span>
+      <span class="item-side"><span class="when">${esc(dateOf(m.updated_at))}</span><span class="badge ${m.redacted ? "redacted" : "shared"}">${m.redacted ? "Redacted" : "Shared"}</span></span>
+    </div>`).join("")
+    : emptyState("cloud", state.cloudTab === "mine" ? "Nothing from this device yet" : state.cloudTab === "redacted" ? "No masked notes" : "The cloud is empty",
+      state.cloudTab === "mine" ? "Shared notes appear here once they have synced." : "Private notes never appear here.");
+}
+
+async function loadCloud() {
+  const data = await api("/api/cloud").catch(() => null);
+  if (!data) return;
+  const memory = state.status?.memory || {};
+  const me = state.status?.device.id;
+  state.cloud = data;
+  if (!data.online) {
+    $("cloud-hint").textContent = "The cloud cannot be reached right now. Everything else keeps working from device memory.";
+    $("cloud-compare").innerHTML = "";
+    $("cloud-list").innerHTML = emptyState("cloud-off", "Working offline", "The cloud view returns when the link is up.");
+    return;
+  }
+  $("cloud-hint").textContent = "Read live from the cloud. Private notes never appear here.";
+  const mine = data.items.filter((m) => m.origin_device === me).length;
+  $("cloud-compare").innerHTML = `
+    <div class="tile"><span class="tile-icon cloud">${icon("cloud")}</span><span class="tile-label">Total notes in the cloud</span><span class="tile-value">${data.total}</span></div>
+    <div class="tile"><span class="tile-icon">${icon("users")}</span><span class="tile-label">Shared from this device</span><span class="tile-value">${mine}</span></div>
+    <div class="tile"><span class="tile-icon private">${icon("lock")}</span><span class="tile-label">Private, kept here</span><span class="tile-value">${memory.private ?? 0}</span></div>`;
+  renderCloudList();
+}
+
+// ---------------------------------------------------------------- wiring
+
+function showTab(tab) {
+  if (!document.getElementById(`panel-${tab}`)) tab = "work";
+  state.tab = tab;
+  if (location.hash.slice(1) !== tab) history.replaceState(null, "", `#${tab}`);
+  document.querySelectorAll(".tab").forEach((el) => el.classList.toggle("active", el.dataset.tab === tab));
+  document.querySelectorAll(".panel").forEach((el) => el.classList.toggle("active", el.id === `panel-${tab}`));
+  window.scrollTo({ top: 0 });
+  refresh();
+}
+
+$("tabs").addEventListener("click", (event) => {
+  const tab = event.target.closest(".tab");
+  if (tab) showTab(tab.dataset.tab);
+});
+
+$("open-composer").addEventListener("click", openComposer);
+$("close-composer").addEventListener("click", () => { $("composer").hidden = true; });
+$("open-search").addEventListener("click", () => { showTab("memory"); $("query").focus(); });
+$("view-activity").addEventListener("click", openActivity);
+$("activity-btn").addEventListener("click", openActivity);
+
+$("note").addEventListener("input", schedulePreview);
+$("scope-override").addEventListener("change", loadPreview);
+$("add-photo").addEventListener("click", () => $("photo-file").click());
+$("photo-file").addEventListener("change", (event) => setPhoto(event.target.files[0]));
+$("save-note").addEventListener("click", () => saveNote(false));
+$("note").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) saveNote(false);
+});
+
+$("search-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  state.query = $("query").value.trim();
+  if (!state.query) { clearSearch(); return; }
+  runSearch(true);
+});
+$("query").addEventListener("input", () => { if (!$("query").value.trim() && state.query) clearSearch(); });
+$("mode").addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  state.mode = button.dataset.mode;
+  document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("active", b === button));
+  runSearch(false);
+});
+$("include-old").addEventListener("change", () => runSearch(false));
+$("rerank").addEventListener("change", () => runSearch(false));
+$("sort").addEventListener("change", (event) => { state.sort = event.target.value; runSearch(false); });
+
+$("memory-filters").addEventListener("click", (event) => {
+  const chip = event.target.closest(".chip");
+  if (!chip) return;
+  state.filter = chip.dataset.filter;
+  renderFilters();
+  if (state.query) { $("query").value = ""; clearSearch(); } else loadMemory();
+});
+let filterTimer;
+$("memory-text").addEventListener("input", () => { clearTimeout(filterTimer); filterTimer = setTimeout(loadMemory, 200); });
+
+$("queue-tabs").addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (button) showQueue(button.dataset.queue);
+});
+$("cloud-tabs").addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (button) showCloudTab(button.dataset.cloud);
+});
+
+document.addEventListener("click", (event) => {
+  const open = event.target.closest("[data-open]");
+  if (open) { state.guideOpen = false; return openMemory(open.dataset.open); }
+  const guided = event.target.closest("[data-guide]");
+  if (guided) return $(guided.dataset.guide).click();
+  if (event.target.closest("[data-close]") || event.target === $("drawer")) return closeDrawer();
+  if (event.target.closest("[data-close-activity]") || event.target === $("activity-drawer")) return closeActivity();
+
+  const combine = event.target.closest("[data-combine]");
+  if (combine) {
+    combine.closest(".conflict-card").querySelector(".combine").hidden = false;
+    return;
+  }
+  const resolve = event.target.closest("[data-resolve]");
+  if (resolve) {
+    const card = resolve.closest(".conflict-card");
+    const body = { choice: resolve.dataset.resolve };
+    if (body.choice === "merge") body.text = card.querySelector("textarea").value;
+    attempt(() => api(`/api/conflicts/${card.dataset.conflict}/resolve`, { method: "POST", body }), resolve)
+      .then((done) => { if (done) { toast("Decision saved."); poll(); loadSync(); } });
+  }
+});
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeDrawer(); closeActivity(); closeMenu(); } });
+
+$("network-toggle").addEventListener("change", async (event) => {
+  await attempt(() => api("/api/link/offline", { method: "POST", body: { value: !event.target.checked } }));
+  poll();
+});
+$("auto-sync").addEventListener("change", (event) =>
+  attempt(() => api("/api/sync/auto", { method: "POST", body: { value: event.target.checked } })));
+
+$("sync-now").addEventListener("click", async (event) => {
+  const result = await attempt(() => api("/api/sync/run", { method: "POST" }), event.target);
+  if (!result) return;
+  if (result.status === "offline") toast("The cloud cannot be reached. Changes stay queued.");
+  else if (result.status === "failed") toast(`Sync failed: ${result.error}`);
+  else if (result.status === "ok") toast(`Sent ${result.pushed}, received ${result.pulled}.`);
+  poll();
+});
+$("rebuild").addEventListener("click", async (event) => {
+  const result = await attempt(() => api("/api/replica/rebuild", { method: "POST" }), event.target);
+  if (result) { toast(`Replica cleared (${result.cleared}) and refilled.`); poll(); }
+});
+
+$("seed").addEventListener("click", async (event) => {
+  const result = await attempt(() => api("/api/demo/seed", { method: "POST" }), event.target);
+  if (result) { toast(`Added ${result.created} sample notes.`); poll(); }
+});
 $("seed-cloud").addEventListener("click", async (event) => {
   const result = await attempt(() => api("/api/demo/seed-cloud", { method: "POST" }), event.target);
   if (result) { toast(`Published ${result.published} manuals to the cloud.`); poll(); }
 });
-
-$("guide").addEventListener("click", openGuide);
-$("change-pin").addEventListener("click", () => { closeMenu(); openPinChange(); });
+$("stage-conflict").addEventListener("click", async (event) => {
+  const result = await attempt(() => api("/api/demo/conflict", { method: "POST" }), event.target);
+  if (!result) return;
+  toast(`${result.other_device} and this device now disagree.`);
+  seen("conflict", true);
+  closeDrawer();
+  state.queueTab = "conflicts";
+  showTab("sync");
+  poll();
+});
 
 function closeMenu() { $("settings-menu").hidden = true; $("settings").setAttribute("aria-expanded", "false"); }
-$("settings").addEventListener("click", (event) => {
+function toggleMenu(event) {
   event.stopPropagation();
   const open = $("settings-menu").hidden;
   $("settings-menu").hidden = !open;
   $("settings").setAttribute("aria-expanded", String(open));
-});
+}
+$("settings").addEventListener("click", toggleMenu);
+$("settings-link").addEventListener("click", toggleMenu);
+$("device-menu-btn").addEventListener("click", toggleMenu);
 document.addEventListener("click", (event) => { if (!event.target.closest(".menu-wrap")) closeMenu(); });
+$("guide").addEventListener("click", openGuide);
+$("guide-menu").addEventListener("click", openGuide);
+$("change-pin").addEventListener("click", () => { closeMenu(); openPinChange(); });
+$("backup").addEventListener("click", () => { closeMenu(); openBackup(); });
+$("restore").addEventListener("click", () => { closeMenu(); openRestore(); });
 $("lock-form").addEventListener("submit", submitLock);
 $("lock-now").addEventListener("click", async () => {
   closeMenu();
@@ -952,7 +1105,6 @@ $("lock-now").addEventListener("click", async () => {
 });
 
 $("theme").addEventListener("click", () => {
-  closeMenu();
   const root = document.documentElement;
   const dark = root.dataset.theme
     ? root.dataset.theme === "dark"
@@ -967,12 +1119,17 @@ try {
 
 // ---------------------------------------------------------------- voice
 
-// Hands are often gloved or dirty in the field. Dictation uses the browser's own
-// speech recognition; where the browser can run it on the device (recent Chrome
-// and Safari offer this for some languages) it is asked to, otherwise the browser
-// sends audio to its vendor's speech service, which needs internet.
+// Preferred path: record a few seconds here, transcribe on the device (Whisper).
+// Works in every browser and with no network. The browser's own recogniser is
+// only a fallback for devices where speech to text is turned off.
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let listening = null;
+let recording = null;
+
+function setButtonLabel(button, html) {
+  if (!button.dataset.idle) button.dataset.idle = button.innerHTML;
+  button.innerHTML = html === null ? button.dataset.idle : html;
+}
 
 function stopDictation() {
   if (listening) { try { listening.recognition.stop(); } catch (error) { /* already stopped */ } }
@@ -984,9 +1141,6 @@ function startDictation(button, onDevice = true) {
   recognition.lang = navigator.language || "en-IN";
   recognition.interimResults = true;
   recognition.continuous = false;
-  // Ask for on-device recognition first. Browsers only have it for some
-  // languages, and answer "language-not-supported" otherwise; then the ordinary
-  // recogniser (the browser vendor's service) is used instead.
   if (onDevice) { try { recognition.processLocally = true; } catch (error) { onDevice = false; } }
   let retry = false;
   const before = target.value ? `${target.value.trim()} ` : "";
@@ -1002,34 +1156,26 @@ function startDictation(button, onDevice = true) {
     else if (event.error === "language-not-supported") toast(`This browser cannot recognise ${recognition.lang}. Type the note instead.`);
     else if (event.error !== "aborted" && event.error !== "no-speech") toast(`Dictation stopped: ${event.error}`);
   };
-  recognition.onend = () => {
-    if (retry) { startDictation(button, false); return; }
-    button.classList.remove("listening");
-    button.textContent = button.dataset.idle;
-    listening = null;
-    if (button.dataset.submit && target.value.trim()) $(button.dataset.submit).requestSubmit();
-    else target.focus();
-  };
-  if (!button.dataset.idle) button.dataset.idle = button.textContent;
-  button.textContent = button.classList.contains("icon") ? "■" : "■ Listening…";
-  button.classList.add("listening");
-  listening = { recognition, button };
-  // Some browsers expose the API but never answer; do not sit on "Listening…" forever.
   const watchdog = setTimeout(() => {
     if (listening && listening.recognition === recognition && !target.value.trim()) {
       toast("This browser's speech recognition did not respond. Type the note instead.");
       try { recognition.abort(); } catch (error) { /* already stopped */ }
     }
   }, 12000);
-  const originalEnd = recognition.onend;
-  recognition.onend = () => { clearTimeout(watchdog); originalEnd(); };
+  recognition.onend = () => {
+    clearTimeout(watchdog);
+    if (retry) { startDictation(button, false); return; }
+    button.classList.remove("listening");
+    setButtonLabel(button, null);
+    listening = null;
+    if (button.dataset.submit && target.value.trim()) $(button.dataset.submit).requestSubmit();
+    else target.focus();
+  };
+  setButtonLabel(button, button.classList.contains("icon") ? "■" : "■ Listening…");
+  button.classList.add("listening");
+  listening = { recognition, button };
   recognition.start();
 }
-
-// Preferred path: record a few seconds here, transcribe on the device (Whisper).
-// Works in every browser and with no network; the browser's own recogniser is
-// only a fallback for devices where speech to text is turned off.
-let recording = null;
 
 function recorderMime() {
   for (const type of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]) {
@@ -1060,7 +1206,7 @@ async function startRecording(button) {
     clearTimeout(recording?.timer);
     recording = null;
     button.classList.remove("listening");
-    button.textContent = "… transcribing";
+    setButtonLabel(button, "… transcribing");
     button.disabled = true;
     try {
       const form = new FormData();
@@ -1081,12 +1227,11 @@ async function startRecording(button) {
       toast(error.message);
     } finally {
       button.disabled = false;
-      button.textContent = button.dataset.idle;
+      setButtonLabel(button, null);
       target.focus();
     }
   };
-  if (!button.dataset.idle) button.dataset.idle = button.textContent;
-  button.textContent = button.classList.contains("icon") ? "■" : "■ Stop";
+  setButtonLabel(button, button.classList.contains("icon") ? "■" : "■ Stop");
   button.classList.add("listening");
   recording = { recorder, button, timer: setTimeout(() => recorder.state === "recording" && recorder.stop(), 30000) };
   recorder.start();
@@ -1094,10 +1239,6 @@ async function startRecording(button) {
 
 function stopRecording() {
   if (recording && recording.recorder.state === "recording") recording.recorder.stop();
-}
-
-function deviceSpeech() {
-  return Boolean(state.status?.engine?.speech_model);
 }
 
 document.querySelectorAll("[data-dictate]").forEach((button) => {
@@ -1108,8 +1249,6 @@ document.querySelectorAll("[data-dictate]").forEach((button) => {
     if (engine.speech_model) return startRecording(button);
     if (engine.speech_loading) return toast("The speech model is still loading on the device. Try again in a moment.");
     if (engine.speech_error) return toast(`Speech to text failed to load on the device: ${engine.speech_error}`);
-    // Speech to text is turned off on this device: the browser's own recogniser is
-    // the only option, and some browsers (Brave, Firefox) do not provide one.
     if (Recognition) startDictation(button);
     else toast("This browser has no speech recognition and the device's speech model is turned off.");
   });
@@ -1129,18 +1268,17 @@ function updateDictateButtons(engine) {
 
 // ---------------------------------------------------------------- install
 
-// Installable on a phone or tablet. The worker caches only the page shell, never
-// anything from /api/, so no note text lives in the browser.
 if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname))) {
   navigator.serviceWorker.register("/sw.js").catch(() => { /* the dashboard works without it */ });
 }
 
-// Deep links: #sync opens a tab, ?q=... runs a search, ?note=... drafts a note.
+// Deep links: #sync opens a page, ?q=... runs a search, ?note=... drafts a note.
 window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
 if (location.hash) showTab(location.hash.slice(1));
 const params = new URLSearchParams(location.search);
 if (params.get("theme")) document.documentElement.dataset.theme = params.get("theme");
 if (params.get("note")) {
+  openComposer();
   $("note").value = params.get("note");
   schedulePreview();
 }
@@ -1148,6 +1286,7 @@ const linked = params.get("q");
 if (linked) {
   $("query").value = linked;
   state.query = linked;
+  showTab("memory");
   runSearch(true);
 }
 

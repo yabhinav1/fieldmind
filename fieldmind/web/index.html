@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#0f1412">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="FieldMind">
@@ -14,74 +14,123 @@
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand">
-    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 4 9.5v13L16 29l12-6.5v-13z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="16" cy="16" r="4" fill="currentColor"/></svg>
-    <div>
-      <div class="name">FieldMind</div>
-      <div class="device" id="device-line">Starting…</div>
-    </div>
-  </div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-work" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 14h8"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M3 21v-5h5"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19a4.5 4.5 0 0 0 .4-9A7 7 0 0 0 4.3 12.6 3.5 3.5 0 0 0 5.5 19Z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21h4"/></symbol>
+  <symbol id="i-cog" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-cloud-check" viewBox="0 0 24 24"><path d="M17.5 19a4.5 4.5 0 0 0 .4-9A7 7 0 0 0 4.3 12.6 3.5 3.5 0 0 0 5.5 19Z"/><path d="m9 15 2 2 4-4"/></symbol>
+  <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M17.5 19a4.5 4.5 0 0 0 .4-9A7 7 0 0 0 4.3 12.6 3.5 3.5 0 0 0 5.5 19Z"/><path d="m4 4 16 16"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 15.5a5 5 0 0 1 5.5 4.5"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 13 9 5 9-5"/><path d="m3 18 9 5 9-5"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M2 9a14 14 0 0 1 20 0"/><circle cx="12" cy="19.5" r="1"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m21 16-5-5-8 8"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4h6a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4Z"/><path d="M20 4h-6a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h7Z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4Z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.5"/><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 7.5v9"/><path d="M6 7.5c0 4.5 9.5 2 9.5 4.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 4h16v16H4Z"/><path d="M4 14h5l1.5 2h3L15 14h5"/></symbol>
+</svg>
 
-  <div class="link" id="link">
-    <div class="link-state">
-      <span class="dot" id="link-dot"></span>
-      <div>
-        <div class="link-title" id="link-title">Checking link</div>
-        <div class="link-sub" id="link-sub">&nbsp;</div>
-      </div>
+<div class="app">
+  <aside class="side">
+    <div class="side-brand">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 4 9.5v13L16 29l12-6.5v-13z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="16" cy="16" r="4" fill="currentColor"/></svg>
+      <div><div class="name">FieldMind</div><div class="tagline">Field memory · Offline first</div></div>
     </div>
-    <label class="switch" title="Simulate losing the network on this device">
-      <input type="checkbox" id="network-toggle" checked>
-      <span class="track"><span class="thumb"></span></span>
-      <span class="switch-label">Network</span>
-    </label>
-    <button class="btn" id="sync-now">Sync now</button>
-    <button class="btn primary" id="guide" title="A guided tour of what to try">Demo guide</button>
-    <div class="menu-wrap">
-      <button class="btn ghost icon" id="settings" title="Device settings" aria-label="Device settings" aria-haspopup="true" aria-expanded="false">⚙</button>
-      <div class="menu" id="settings-menu" hidden>
-        <button class="menu-item" id="theme">Switch light / dark</button>
-        <button class="menu-item" id="change-pin">Change the PIN</button>
-        <button class="menu-item" id="backup">Back up this device…</button>
-        <button class="menu-item" id="restore">Restore from a backup…</button>
-        <button class="menu-item" id="lock-now">Lock this device</button>
-      </div>
-    </div>
-  </div>
-</header>
-
-<section class="stats" id="stats"></section>
-
-<main class="layout">
-  <div class="main">
-    <nav class="tabs" id="tabs" role="tablist">
-      <button class="tab active" data-tab="work" role="tab"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Work</button>
-      <button class="tab" data-tab="memory" role="tab"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 14h8"/></svg>Memory</button>
-      <button class="tab" data-tab="sync" role="tab"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M3 21v-5h5"/><path d="M21 3v5h-5"/></svg>Sync <span class="count" id="tab-sync-count"></span></button>
-      <button class="tab" data-tab="cloud" role="tab"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 0 0 .4-9A7 7 0 0 0 4.3 12.6 3.5 3.5 0 0 0 5.5 19Z"/></svg>Cloud</button>
+    <nav class="nav" id="tabs" role="tablist">
+      <button class="tab active" data-tab="work" role="tab"><svg class="icon"><use href="#i-work"/></svg><span>Work</span></button>
+      <button class="tab" data-tab="memory" role="tab"><svg class="icon"><use href="#i-memory"/></svg><span>Memory</span></button>
+      <button class="tab" data-tab="sync" role="tab"><svg class="icon"><use href="#i-sync"/></svg><span>Sync</span><span class="count" id="tab-sync-count"></span></button>
+      <button class="tab" data-tab="cloud" role="tab"><svg class="icon"><use href="#i-cloud"/></svg><span>Cloud</span></button>
     </nav>
+    <div class="side-foot">
+      <button class="side-device" id="device-menu-btn" title="This device">
+        <span class="side-label">Device</span>
+        <span class="side-value" id="device-line">Starting…</span>
+      </button>
+      <button class="side-link" id="guide"><svg class="icon"><use href="#i-check"/></svg>Demo guide</button>
+      <button class="side-link" id="settings-link"><svg class="icon"><use href="#i-cog"/></svg>Settings</button>
+    </div>
+  </aside>
 
-    <section class="panel active" id="panel-work">
-      <div class="card start" id="start-here" hidden>
-        <h2>Start here</h2>
-        <p class="hint">This device is empty. Three ways to begin:</p>
-        <div class="start-steps">
-          <button class="start-step" data-guide="seed-cloud"><b>1</b><span>Publish headquarters manuals to the cloud</span><small>The device pulls them in so it can answer questions offline.</small></button>
-          <button class="start-step" data-guide="seed"><b>2</b><span>Load sample field notes</span><small>Watch each one be kept private, shared, or shared with names masked.</small></button>
-          <button class="start-step" data-focus="note"><b>3</b><span>Write or dictate your own note</span><small>The sharing decision appears as you type.</small></button>
+  <div class="main-col">
+    <header class="top">
+      <div class="top-brand">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 4 9.5v13L16 29l12-6.5v-13z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="16" cy="16" r="4" fill="currentColor"/></svg>
+        <div><div class="name">FieldMind</div><div class="tagline" id="top-device">Field memory · Offline first</div></div>
+      </div>
+      <div class="top-right">
+        <div class="link-state" id="link" title="">
+          <span class="dot" id="link-dot"></span>
+          <span class="link-title" id="link-title">Checking</span>
+          <span class="link-sub" id="link-sub"></span>
+        </div>
+        <label class="switch" title="Simulate losing the network on this device">
+          <input type="checkbox" id="network-toggle" checked>
+          <span class="track"><span class="thumb"></span></span>
+          <span class="switch-label">Network</span>
+        </label>
+        <button class="btn primary" id="sync-now">Sync now</button>
+        <button class="btn icon ghost" id="activity-btn" title="Activity" aria-label="Activity"><svg class="icon"><use href="#i-bell"/></svg><span class="pip" id="activity-pip" hidden></span></button>
+        <button class="btn icon ghost" id="theme" title="Switch light and dark" aria-label="Switch light and dark"><svg class="icon"><use href="#i-sun"/></svg></button>
+        <div class="menu-wrap">
+          <button class="avatar" id="settings" title="Device settings" aria-label="Device settings" aria-haspopup="true" aria-expanded="false">··</button>
+          <div class="menu" id="settings-menu" hidden>
+            <div class="menu-head" id="menu-head">Device</div>
+            <button class="menu-item" id="guide-menu">Demo guide</button>
+            <button class="menu-item" id="change-pin">Change the PIN</button>
+            <button class="menu-item" id="backup">Back up this device…</button>
+            <button class="menu-item" id="restore">Restore from a backup…</button>
+            <button class="menu-item" id="lock-now">Lock this device</button>
+          </div>
         </div>
       </div>
-      <div class="work">
-        <div class="card">
-          <h2>Record a note</h2>
-          <p class="hint">Write what you saw or did. The device decides what stays here and what is shared.</p>
+    </header>
+
+    <main class="content">
+
+      <section class="panel active" id="panel-work">
+        <div class="page-head">
+          <h1 id="greeting">Good to see you back.</h1>
+          <p class="sub">Capture what you learn in the field. Find it when you need it.</p>
+        </div>
+
+        <div class="hero" id="start-here">
+          <div class="hero-card">
+            <span class="hero-icon"><svg class="icon"><use href="#i-note"/></svg></span>
+            <h2>Record a note</h2>
+            <p>Write, dictate or photograph what you saw. The device suggests what to keep and how to share.</p>
+            <button class="btn primary" id="open-composer">Write a note <span class="arrow">→</span></button>
+          </div>
+          <div class="hero-card">
+            <span class="hero-icon"><svg class="icon"><use href="#i-search"/></svg></span>
+            <h2>Search memory</h2>
+            <p>Find past fixes, manuals and notes from this device. No network needed.</p>
+            <button class="btn" id="open-search">Search <span class="arrow">→</span></button>
+          </div>
+        </div>
+
+        <div class="card composer" id="composer" hidden>
+          <div class="row between" style="margin:0 0 6px">
+            <div><h2>Record a note</h2><p class="hint">The device decides what stays here and what is shared, before you save.</p></div>
+            <button class="btn ghost small" id="close-composer">Close</button>
+          </div>
           <textarea id="note" rows="4" placeholder="Pump P-102 bearing vibration high at 7.2 mm/s…"></textarea>
           <div id="photo-preview" class="photo-preview" hidden></div>
           <div class="row wrap">
-            <button class="btn mic" type="button" id="dictate-note" data-dictate="note" hidden
-              title="Dictate the note. Uses the browser's speech service." aria-label="Dictate the note">🎙 Dictate</button>
-            <button class="btn" type="button" id="add-photo" hidden title="Attach a photo. The note says what it shows.">📷 Photo</button>
+            <button class="btn mic" type="button" id="dictate-note" data-dictate="note" hidden title="Dictate." aria-label="Dictate the note"><svg class="icon"><use href="#i-mic"/></svg>Dictate</button>
+            <button class="btn" type="button" id="add-photo" hidden title="Attach a photo. The note says what it shows."><svg class="icon"><use href="#i-camera"/></svg>Photo</button>
             <input type="file" id="photo-file" accept="image/*" capture="environment" hidden>
             <select id="scope-override" aria-label="Sharing">
               <option value="">Let the device decide</option>
@@ -100,102 +149,117 @@
           </div>
         </div>
 
-        <div class="card">
-          <h2>Search device memory</h2>
-          <p class="hint">Runs entirely on this device, online or not.</p>
-          <form id="search-form" class="row">
-            <input id="query" type="search" placeholder="Which machine is running hot?" autocomplete="off">
-            <button class="btn mic icon" type="button" id="dictate-query" data-dictate="query" data-submit="search-form" hidden
-              title="Ask by voice. Uses the browser's speech service." aria-label="Ask by voice">🎙</button>
-            <button class="btn primary" type="submit">Search</button>
-          </form>
-          <details class="options">
-            <summary>Search options</summary>
-            <div class="row wrap">
-              <div class="segmented" id="mode">
-                <button type="button" data-mode="hybrid" class="active">Combined</button>
-                <button type="button" data-mode="semantic">Meaning</button>
-                <button type="button" data-mode="keyword">Keywords</button>
-              </div>
-              <label class="check"><input type="checkbox" id="include-old"> Include replaced notes</label>
-              <label class="check" id="rerank-label" title="A small cross-encoder reads the question with each candidate"><input type="checkbox" id="rerank"> Read question and notes together (slower, more precise)</label>
-            </div>
-          </details>
-          <div id="search-meta" class="meta-line"></div>
-          <div id="answer"></div>
-          <div id="results" class="list"></div>
+        <div class="work-grid">
+          <div class="card">
+            <div class="row between" style="margin:0 0 4px"><h2>Recent activity</h2><button class="link-btn" id="view-activity">View all</button></div>
+            <div id="recent" class="recent"></div>
+          </div>
+          <div class="card">
+            <h2>Device status</h2>
+            <div class="status-list" id="device-status"></div>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="panel" id="panel-memory">
-      <div class="card">
-        <div class="row wrap between">
+      <section class="panel" id="panel-memory">
+        <div class="page-head">
+          <h1>Search device memory</h1>
+          <p class="sub">Find past fixes, manuals and notes. Runs entirely on this device.</p>
+        </div>
+        <form id="search-form" class="search-bar">
+          <span class="search-icon"><svg class="icon"><use href="#i-search"/></svg></span>
+          <input id="query" type="search" placeholder="Which machine is running hot?" autocomplete="off">
+          <button class="btn mic icon" type="button" id="dictate-query" data-dictate="query" data-submit="search-form" hidden title="Ask by voice." aria-label="Ask by voice"><svg class="icon"><use href="#i-mic"/></svg></button>
+          <button class="btn primary" type="submit">Search</button>
+        </form>
+        <div class="row between wrap toolbar">
           <div class="chips" id="memory-filters"></div>
           <div class="row" style="margin:0">
-            <input id="memory-text" type="search" placeholder="Filter by text" autocomplete="off">
-            <a class="btn" id="report" href="/api/report?hours=24" title="Download the last 24 hours as a Markdown shift report. Private notes are left out.">Shift report</a>
+            <select id="sort" aria-label="Sort"><option value="relevance">Sort: Relevance</option><option value="newest">Sort: Newest</option></select>
+            <a class="btn small" id="report" href="/api/report?hours=24" title="Download the last 24 hours as a Markdown shift report. Private notes are left out.">Shift report</a>
           </div>
         </div>
-        <div id="memory-list" class="list"></div>
-      </div>
-    </section>
-
-    <section class="panel" id="panel-sync">
-      <div class="grid-2">
-        <div class="card">
-          <h2>Waiting to send</h2>
-          <p class="hint">Changes made on this device, sent in this order when the link is up.</p>
-          <div id="outbox" class="list"></div>
-        </div>
-        <div class="card">
-          <h2>Link and totals</h2>
-          <div id="sync-summary"></div>
+        <details class="options">
+          <summary>Search options</summary>
           <div class="row wrap">
-            <label class="check"><input type="checkbox" id="auto-sync" checked> Sync automatically</label>
-            <button class="btn" id="rebuild">Rebuild cloud replica</button>
+            <div class="segmented" id="mode">
+              <button type="button" data-mode="hybrid" class="active">Combined</button>
+              <button type="button" data-mode="semantic">Meaning</button>
+              <button type="button" data-mode="keyword">Keywords</button>
+            </div>
+            <label class="check"><input type="checkbox" id="include-old"> Include replaced notes</label>
+            <label class="check" id="rerank-label" title="A small cross-encoder reads the question with each candidate"><input type="checkbox" id="rerank"> Read question and notes together</label>
+            <input id="memory-text" type="search" placeholder="Filter the list by text" autocomplete="off">
+          </div>
+        </details>
+        <div id="search-meta" class="meta-line"></div>
+        <div id="answer"></div>
+        <div id="results" class="list"></div>
+        <div id="memory-list" class="list"></div>
+      </section>
+
+      <section class="panel" id="panel-sync">
+        <div class="page-head">
+          <h1>Sync &amp; Conflicts</h1>
+          <p class="sub">Keep your notes in sync with the cloud when online. Nothing is ever overwritten.</p>
+        </div>
+        <div class="sync-grid">
+          <div class="stack">
+            <div class="card sync-state" id="sync-state-card"></div>
+            <div class="card">
+              <h2>Sync queue</h2>
+              <div class="segmented" id="queue-tabs">
+                <button type="button" data-queue="pending" class="active">Pending <span id="q-pending">(0)</span></button>
+                <button type="button" data-queue="synced">Synced</button>
+                <button type="button" data-queue="conflicts">Conflicts <span id="q-conflicts">(0)</span></button>
+              </div>
+              <div id="outbox" class="list queue-pane"></div>
+              <div id="runs" class="queue-pane" hidden></div>
+              <div id="conflicts" class="list queue-pane" hidden></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Link</h2>
+            <div id="sync-summary"></div>
+            <div class="row wrap">
+              <label class="check"><input type="checkbox" id="auto-sync" checked> Sync automatically</label>
+              <button class="btn small" id="rebuild">Rebuild cloud replica</button>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="card">
-        <h2>Needs a decision</h2>
-        <p class="hint">Two devices changed the same note in different ways. Nothing was overwritten.</p>
-        <div id="conflicts" class="list"></div>
-      </div>
-      <details class="card under">
-        <summary><h2>Recent sync runs</h2></summary>
-        <div id="runs"></div>
-      </details>
-    </section>
+      </section>
 
-    <section class="panel" id="panel-cloud">
-      <div class="card">
-        <div class="row between wrap">
-          <div>
-            <h2>What the cloud holds</h2>
-            <p class="hint" id="cloud-hint">Read from the cloud when the link is up.</p>
-          </div>
-          <div id="cloud-compare" class="compare"></div>
+      <section class="panel" id="panel-cloud">
+        <div class="page-head">
+          <h1>Cloud Records</h1>
+          <p class="sub" id="cloud-hint">Manage what is shared with your team.</p>
+        </div>
+        <div class="tiles" id="cloud-compare"></div>
+        <div class="segmented" id="cloud-tabs">
+          <button type="button" data-cloud="mine" class="active">Your notes</button>
+          <button type="button" data-cloud="all">Shared with team</button>
+          <button type="button" data-cloud="redacted">Redacted</button>
         </div>
         <div id="cloud-list" class="list"></div>
-      </div>
-    </section>
-  </div>
+      </section>
 
-  <aside class="rail">
-    <div class="card activity">
-      <h2>Activity</h2>
-      <div id="events" class="events"></div>
-    </div>
-    <details class="card under" id="engine-card">
-      <summary><h2>Under the hood</h2></summary>
-      <div id="engine"></div>
-    </details>
-  </aside>
-</main>
+      <details class="card under" id="engine-card">
+        <summary><h2>Under the hood</h2></summary>
+        <div id="engine"></div>
+      </details>
+    </main>
+  </div>
+</div>
 
 <div class="drawer" id="drawer" hidden>
   <div class="drawer-body" id="drawer-body"></div>
+</div>
+<div class="drawer" id="activity-drawer" hidden>
+  <div class="drawer-body">
+    <div class="drawer-head"><h2>Activity</h2><button class="btn ghost small" data-close-activity>Close</button></div>
+    <p class="hint">Everything the device decided and did, newest first.</p>
+    <div id="events" class="events"></div>
+  </div>
 </div>
 <div class="lock" id="lock" hidden>
   <form class="lock-card" id="lock-form" autocomplete="off">

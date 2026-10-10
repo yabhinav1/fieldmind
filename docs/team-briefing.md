@@ -27,7 +27,7 @@ If you only remember one sentence: *"A technician's most useful knowledge is cre
 | Intermittent connectivity, keep operating offline | Every change goes into a durable "outbox" (SQLite) first. It survives restarts and replays when the link returns, urgent notes first. A change that keeps failing is set aside so it never blocks the queue. With the cloud gone, devices on the same network exchange notes directly. |
 | Sync between edge devices and Qdrant Server | Uploads are compare-and-swap writes (never overwrite blindly). Small downloads use a diff of ids and revisions. A device that is far behind restores its whole replica from a Qdrant Server **shard snapshot** in one download. |
 | Evolving memory, updates, conflicting information | A follow-up note replaces the earlier belief ("bearing replaced" supersedes "bearing vibration high"). Concurrent edits to different fields merge automatically. A real clash is held for a person to decide, with both versions side by side. |
-| User-facing interface for memory, search, sync status, activity | A dashboard with Work, Memory, Sync and Cloud tabs, a live activity log, and a "Demo guide" button. Locked behind a PIN (the first visitor chooses it with a setup code from the console). Installable on a phone; dictation; photo capture; shift report; encrypted backup. |
+| User-facing interface for memory, search, sync status, activity | A dashboard with Work, Memory, Sync and Cloud pages, a live activity log, and a "Demo guide" button. Locked behind a PIN (the first visitor chooses it with a setup code from the console). Installable on a phone; dictation; photo capture; shift report; encrypted backup. |
 | A meaningful edge-to-cloud AI workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes and photos flow back up filtered by the policy, and a small language model on the device answers questions using both, with citations checked against the sources. |
 
 Full mapping with code files and test names: `docs/requirements.md`.
@@ -96,7 +96,7 @@ cd fieldmind
 docker compose --profile demo up --build
 ```
 
-Then open http://localhost:8001 (edge-a) and http://localhost:8002 (edge-b). Each device asks you to choose a PIN the first time (setup code in the compose output). First start downloads about 260 MB of models. In this mode answers are composed from the notes (no language model in the containers); everything else is identical. Click **Demo guide** in the top right of the dashboard: it lists 8 steps and ticks them off as you do them.
+Then open http://localhost:8001 (edge-a) and http://localhost:8002 (edge-b). Each device asks you to choose a PIN the first time (setup code in the compose output). First start downloads about 260 MB of models. In this mode answers are composed from the notes (no language model in the containers); everything else is identical. Click **Demo guide** at the bottom of the sidebar: it lists 8 steps and ticks them off as you do them.
 
 **Windows with the language model** (how it runs on Abhinav's laptop): see "Run it" in the README. Before a demo there, run `python -m fieldmind doctor`; every line should say `ok`.
 

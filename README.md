@@ -128,7 +128,7 @@ This starts Qdrant Server and two edge devices in Linux containers:
 - edge-a at http://localhost:8001
 - edge-b at http://localhost:8002
 
-The first start downloads the embedding, name and reranking models (about 260 MB). Each device has no PIN yet: its lock screen asks for a one-time **setup code**, printed in the compose output (`edge-a ... enter setup code A1B2C3 on the lock screen`), and the PIN you choose. From then on it is just the PIN. To skip that step, run with `FIELDMIND_PIN=2468 docker compose ...`. Click **Demo guide** in the top right of either dashboard.
+The first start downloads the embedding, name and reranking models (about 260 MB). Each device has no PIN yet: its lock screen asks for a one-time **setup code**, printed in the compose output (`edge-a ... enter setup code A1B2C3 on the lock screen`), and the PIN you choose. From then on it is just the PIN. To skip that step, run with `FIELDMIND_PIN=2468 docker compose ...`. Click **Demo guide** at the bottom of the sidebar on either dashboard.
 
 In this mode answers are composed from the notes; the language model runs in the from-source setup below. The two containers are also configured as peers, so cutting both uplinks still lets them exchange notes.
 
@@ -197,7 +197,7 @@ The script disconnects the device from the cloud's network, checks that it notic
 
 ## Demo script (5 minutes)
 
-Open both dashboards side by side and unlock them. The **Demo guide** button lists these steps and ticks them off as you go.
+Open both dashboards side by side and unlock them. The **Demo guide** button (bottom of the sidebar) lists these steps and ticks them off as you go. Notes are recorded from **Work → Write a note**; searching and asking happen on the **Memory** page.
 
 1. **Cloud knowledge reaches the device.** On edge-a, click *Publish headquarters manuals to the cloud*. Eight manuals appear under *Received from cloud*.
 2. **Go offline.** Turn the *Network* switch off on edge-a. The header changes to *Working offline*.
