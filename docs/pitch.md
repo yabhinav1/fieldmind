@@ -76,6 +76,6 @@ The text of private notes, the unmasked original of masked notes, every activity
 - Sealing protects against the data files being copied without the key file; someone who can read the key file too can read everything. Use full-disk encryption for that.
 - The PIN session runs over plain HTTP. Put TLS in front before exposing a device beyond the demo network.
 - Name masking is English only and will miss some names. Addresses are caught only when they start with a house, flat or plot number.
-- Dictation uses the browser's speech recognition; where the browser cannot run it on the device, audio goes to the browser vendor's service and needs internet.
+- Dictation needs an https address (or localhost) for the microphone; the words themselves are transcribed on the device, with the language detected automatically.
 - Pull sync compares a slim index of every memory in the device's site each cycle, which suits tens of thousands of memories, not millions.
 - Photos are not inspected for faces or name plates; the caption decides the scope. Peers exchange notes but not photos.

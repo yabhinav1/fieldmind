@@ -1184,6 +1184,15 @@ function recorderMime() {
   return "";
 }
 
+// Hands-free: listen continuously, cut a phrase whenever the speaker pauses,
+// send it to the device while they keep talking, and finish by itself after a
+// longer silence. Pressing the button again stops early.
+const PAUSE_MS = 650;        // silence that ends a phrase
+const FINISH_MS = 2800;      // silence after speech that ends the dictation
+const IDLE_MS = 7000;        // nothing heard at all: give up
+const MAX_MS = 90000;        // hard stop
+const MIN_PHRASE_MS = 350;
+
 async function startRecording(button) {
   const target = $(button.dataset.dictate);
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -1192,53 +1201,120 @@ async function startRecording(button) {
   }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
   } catch (error) {
     toast(error.name === "NotAllowedError" ? "Microphone access was refused." : `No microphone: ${error.message}`);
     return;
   }
   const mime = recorderMime();
-  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-  const chunks = [];
-  recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
-  recorder.onstop = async () => {
-    stream.getTracks().forEach((track) => track.stop());
-    clearTimeout(recording?.timer);
-    recording = null;
-    button.classList.remove("listening");
-    setButtonLabel(button, "… transcribing");
-    button.disabled = true;
+  const audio = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audio.createMediaStreamSource(stream);
+  const analyser = audio.createAnalyser();
+  analyser.fftSize = 1024;
+  source.connect(analyser);
+  const samples = new Float32Array(analyser.fftSize);
+
+  const session = { button, target, stream, audio, active: true, phrases: 0, done: 0, pending: new Map(), timer: null,
+    base: target.value.trim() };
+  recording = session;
+  setButtonLabel(button, button.classList.contains("icon") ? "■" : "● Listening");
+  button.classList.add("listening");
+  button.style.setProperty("--level", "0");
+
+  let recorder = null, phraseStart = 0, lastVoice = 0, everSpoke = false, floor = 0.004, heardInPhrase = false;
+  const startedAt = performance.now();
+
+  function newRecorder() {
+    const chunks = [];
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+    recorder.onstop = () => {
+      const length = performance.now() - phraseStart;
+      if (heardInPhrase && length >= MIN_PHRASE_MS) sendPhrase(new Blob(chunks, { type: recorder.mimeType || mime || "audio/webm" }));
+      if (session.active) { heardInPhrase = false; phraseStart = performance.now(); newRecorder(); }
+      else finishIfIdle();
+    };
+    phraseStart = performance.now();
+    recorder.start();
+  }
+
+  function render() {
+    // Phrases are shown in the order they were spoken, even if a later one
+    // comes back from the device first.
+    const parts = [];
+    for (let i = 0; i < session.phrases; i++) parts.push(session.pending.get(i) ?? "…");
+    const text = parts.filter((p) => p !== "").join(" ").replace(/\s+…/g, " …");
+    target.value = (session.base ? `${session.base} ` : "") + text;
+    target.dispatchEvent(new Event("input"));
+  }
+
+  async function sendPhrase(blob) {
+    const index = session.phrases++;
+    render();
     try {
       const form = new FormData();
-      form.append("file", new Blob(chunks, { type: recorder.mimeType || mime || "audio/webm" }), "dictation.webm");
-      form.append("language", (navigator.language || "en").slice(0, 2));
+      form.append("file", blob, "phrase.webm");
       const response = await fetch("/api/transcribe", { method: "POST", body: form });
       const data = await response.json().catch(() => ({}));
       if (response.status === 401) showLock();
       if (!response.ok) throw new Error(data.detail || `Transcription failed (${response.status})`);
-      if (data.text) {
-        target.value = (target.value.trim() ? `${target.value.trim()} ` : "") + data.text;
-        target.dispatchEvent(new Event("input"));
-        if (button.dataset.submit) $(button.dataset.submit).requestSubmit();
-      } else {
-        toast("Nothing was heard. Try again a little closer to the microphone.");
-      }
+      session.pending.set(index, (data.text || "").trim());
+      if (data.language && data.language !== "en") button.title = `Heard ${data.language.toUpperCase()}. Transcribed on this device.`;
     } catch (error) {
+      session.pending.set(index, "");
       toast(error.message);
-    } finally {
-      button.disabled = false;
-      setButtonLabel(button, null);
-      target.focus();
     }
-  };
-  setButtonLabel(button, button.classList.contains("icon") ? "■" : "■ Stop");
-  button.classList.add("listening");
-  recording = { recorder, button, timer: setTimeout(() => recorder.state === "recording" && recorder.stop(), 30000) };
-  recorder.start();
+    session.done++;
+    render();
+    finishIfIdle();
+  }
+
+  function finishIfIdle() {
+    if (session.active || session.done < session.phrases) return;
+    const final = target.value.trim();
+    target.value = final;
+    target.dispatchEvent(new Event("input"));
+    button.disabled = false;
+    setButtonLabel(button, null);
+    button.title = "Dictate. Recorded here, transcribed on this device by Whisper. Nothing leaves the device.";
+    if (recording === session) recording = null;
+    if (button.dataset.submit && final) $(button.dataset.submit).requestSubmit();
+    else if (!final) toast("Nothing was heard. Try again a little closer to the microphone.");
+    else target.focus();
+  }
+
+  function stop() {
+    if (!session.active) return;
+    session.active = false;
+    clearInterval(session.timer);
+    button.classList.remove("listening");
+    setButtonLabel(button, "… transcribing");
+    button.disabled = true;
+    try { if (recorder && recorder.state === "recording") recorder.stop(); else finishIfIdle(); } catch (error) { finishIfIdle(); }
+    stream.getTracks().forEach((track) => track.stop());
+    audio.close().catch(() => {});
+  }
+  session.stop = stop;
+
+  newRecorder();
+  session.timer = setInterval(() => {
+    analyser.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+    const rms = Math.sqrt(sum / samples.length);
+    floor = Math.min(floor * 1.02, Math.max(0.002, rms));           // the room's noise, tracked slowly
+    const speaking = rms > Math.max(0.012, floor * 3.5);
+    button.style.setProperty("--level", String(Math.min(1, rms * 12)));
+    const now = performance.now();
+    if (speaking) { lastVoice = now; everSpoke = true; heardInPhrase = true; }
+    const quiet = now - lastVoice;
+    if (heardInPhrase && quiet > PAUSE_MS && recorder.state === "recording") recorder.stop();   // phrase boundary
+    if ((everSpoke && quiet > FINISH_MS) || (!everSpoke && now - startedAt > IDLE_MS) || now - startedAt > MAX_MS) stop();
+  }, 60);
 }
 
 function stopRecording() {
-  if (recording && recording.recorder.state === "recording") recording.recorder.stop();
+  if (recording && recording.stop) recording.stop();
 }
 
 document.querySelectorAll("[data-dictate]").forEach((button) => {

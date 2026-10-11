@@ -47,6 +47,7 @@ def vision():
 def speech():
     model = Transcriber(Settings().models_dir, background=False)
     assert model.available, model.error
+    assert model.multilingual_available, getattr(model, "multilingual_error", "small model missing")
     return model
 
 

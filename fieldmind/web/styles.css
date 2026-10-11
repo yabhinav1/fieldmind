@@ -453,7 +453,8 @@ details.under > #engine { margin-top: 12px; }
 
 /* ---- dictation and photos ---- */
 
-.btn.mic.listening { color: var(--bad); border-color: var(--bad); animation: ring 1.2s ease-in-out infinite; }
+.btn.mic { --level: 0; }
+.btn.mic.listening { color: var(--bad); border-color: var(--bad); animation: ring 1.2s ease-in-out infinite; background: linear-gradient(90deg, color-mix(in srgb, var(--bad) 22%, var(--surface)) calc(var(--level) * 100%), var(--surface) calc(var(--level) * 100%)); }
 @keyframes ring { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bad) 45%, transparent); } 50% { box-shadow: 0 0 0 7px transparent; } }
 .photo-preview[hidden] { display: none; }
 .photo-preview { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 13px; background: var(--surface-2); }

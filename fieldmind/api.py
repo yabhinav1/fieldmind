@@ -255,7 +255,9 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
                        "sealed": bool(d.vault and d.vault.active),
                        "photos": d.service.photos is not None,
                        "speech_enabled": d.speech is not None,
-                       "speech_model": f"Whisper {d.speech.model_name} (on device)" if d.speech and d.speech.available else None,
+                       "speech_model": (f"Whisper {d.speech.model_name}"
+                                        + (f" + {d.speech.multilingual_name} for other languages" if d.speech.multilingual_available else "")
+                                        + " (on device)") if d.speech and d.speech.available else None,
                        "speech_loading": bool(d.speech and not d.speech.available and d.speech.error is None),
                        "speech_error": (d.speech.error or "").splitlines()[0][:200] if d.speech and d.speech.error else None,
                        "vision_model": "CLIP ViT-B/32 (ONNX)" if d.service.photos and d.service.photos.available else None},
@@ -306,8 +308,8 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             raise HTTPException(400, f"The photo could not be read: {error}") from None
 
     @app.post("/api/transcribe")
-    async def transcribe(file: Annotated[UploadFile, File()], language: Annotated[str | None, Form()] = "en"):
-        """Words from a short recording, transcribed on the device."""
+    async def transcribe(file: Annotated[UploadFile, File()], language: Annotated[str | None, Form()] = None):
+        """Words from a short recording, transcribed on the device. The language is detected unless given."""
         speech = dev().speech
         if speech is None:
             raise HTTPException(409, "Speech to text is turned off on this device (FIELDMIND_SPEECH).")

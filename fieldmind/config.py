@@ -87,6 +87,10 @@ class Settings:
     # ("tiny", "base", "small") picks the model.
     speech: bool = field(default_factory=lambda: _env("SPEECH", "base") not in ("0", "false", "no", ""))
     speech_model: str = field(default_factory=lambda: _env("SPEECH", "base") if _env("SPEECH", "base") not in ("1", "true", "yes") else "base")
+    # A larger model that re-reads phrases spoken in languages other than English
+    # (the fast model's Hindi or Tamil comes out garbled). 0 turns it off.
+    speech_multilingual: str | None = field(default_factory=lambda: None if _env("SPEECH_MULTILINGUAL", "small") in ("0", "false", "no", "")
+                                            else _env("SPEECH_MULTILINGUAL", "small"))
 
     # Rerank search candidates with a small cross-encoder (about 23 MB). Answers
     # always use it when it is loaded; search uses it on request.

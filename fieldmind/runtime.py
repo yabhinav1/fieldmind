@@ -70,5 +70,5 @@ def build(settings: Settings, embedder: Embedder | None = None, cloud_client=Non
     peers = PeerExchange(service, fetch=peer_fetch)
     sync = SyncEngine(service, journal, cloud, peers=peers)
     if speech is None and settings.speech:
-        speech = Transcriber(settings.models_dir, settings.speech_model)
+        speech = Transcriber(settings.models_dir, settings.speech_model, settings.speech_multilingual)
     return Device(settings, embedder, names, journal, service, cloud, sync, reranker, vault, peers, photos, speech)
