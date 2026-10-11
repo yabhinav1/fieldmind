@@ -27,7 +27,7 @@ If you only remember one sentence: *"A technician's most useful knowledge is cre
 | Intermittent connectivity, keep operating offline | Every change goes into a durable "outbox" (SQLite) first. It survives restarts and replays when the link returns, urgent notes first. A change that keeps failing is set aside so it never blocks the queue. With the cloud gone, devices on the same network exchange notes directly. |
 | Sync between edge devices and Qdrant Server | Uploads are compare-and-swap writes (never overwrite blindly). Small downloads use a diff of ids and revisions. A device that is far behind restores its whole replica from a Qdrant Server **shard snapshot** in one download. |
 | Evolving memory, updates, conflicting information | A follow-up note replaces the earlier belief ("bearing replaced" supersedes "bearing vibration high"). Concurrent edits to different fields merge automatically. A real clash is held for a person to decide, with both versions side by side. |
-| User-facing interface for memory, search, sync status, activity | A dashboard with Work, Memory, Sync and Cloud pages, a live activity log, and a "Demo guide" button. Locked behind a PIN (the first visitor chooses it with a setup code from the console). Installable on a phone; dictation; photo capture; shift report; encrypted backup. |
+| User-facing interface for memory, search, sync status, activity | A dashboard with Work, Memory, Sync and Cloud pages, a live activity log, and a "Demo guide" button. Locked behind a PIN (the first visitor chooses it with a setup code from the console). Installable on a phone; hands-free dictation in any language, transcribed on the device; photo capture; shift report; encrypted backup. |
 | A meaningful edge-to-cloud AI workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes and photos flow back up filtered by the policy, and a small language model on the device answers questions using both, with citations checked against the sources. |
 
 Full mapping with code files and test names: `docs/requirements.md`.
@@ -96,7 +96,7 @@ cd fieldmind
 docker compose --profile demo up --build
 ```
 
-Then open http://localhost:8001 (edge-a) and http://localhost:8002 (edge-b). Each device asks you to choose a PIN the first time (setup code in the compose output). First start downloads about 260 MB of models. In this mode answers are composed from the notes (no language model in the containers); everything else is identical. Click **Demo guide** at the bottom of the sidebar: it lists 8 steps and ticks them off as you do them.
+Then open http://localhost:8001 (edge-a) and http://localhost:8002 (edge-b). Each device asks you to choose a PIN the first time (setup code in the compose output). First start downloads about 860 MB of models. In this mode answers are composed from the notes (no language model in the containers); everything else is identical. Click **Demo guide** at the bottom of the sidebar: it lists 8 steps and ticks them off as you do them.
 
 **Windows with the language model** (how it runs on Abhinav's laptop): see "Run it" in the README. Before a demo there, run `python -m fieldmind doctor`; every line should say `ok`.
 
@@ -118,17 +118,17 @@ Say the words in italics, or your own version of them.
    *"Search takes about a millisecond and makes zero network calls. The answer is written by a small model on the device from a manual that came from the cloud earlier, and it cites it. Every number in it was checked against the source."*
 5. **Watch a decision.** Type `Suresh and Priya replaced the coupling on pump P-102, call 9876543210 if it trips`. Point at *What the cloud receives*.
    *"The fleet should know about the coupling. It should not get two names and a phone number. The original stays here."*
-6. **Reconnect.** Turn **Network** on. Open the Sync tab as the queue drains.
+6. **Reconnect.** Turn **Network** on. Open the Sync page as the queue drains.
    *"Signal returns. The queue drains by priority, so the gas leak note goes first."*
-7. **Prove privacy.** Open the Cloud tab.
+7. **Prove privacy.** Open the Cloud page.
    *"This is what Qdrant Server actually holds. No health note, no password, names masked."*
 8. **Fleet learning.** On edge-b search `pump bearing vibration`.
    *"The second device now knows what the first one saw."*
-9. **Conflict.** Easiest: on edge-b open the Demo guide and click **Stage a conflict**. By hand: both devices Network off, open the same shared note on each (for example the V-17 valve note) and change the text differently, turn edge-a on, then edge-b. On edge-b open the Sync tab.
+9. **Conflict.** Easiest: on edge-b open the Demo guide and click **Stage a conflict**. By hand: both devices Network off, open the same shared note on each (for example the V-17 valve note) and change the text differently, turn edge-a on, then edge-b. On edge-b open the Sync page.
    *"Two technicians changed the same note while offline. The second to reconnect does not overwrite the first. It shows both versions and a person decides."* Click **Keep mine**.
 10. **Evolving memory.** On edge-b record `Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal`. On edge-a ask `what is the condition of pump P-102`.
     *"The follow-up replaced the earlier belief. The answer reflects the new state."*
-11. **Snapshot restore.** Sync tab, click **Rebuild cloud replica**. Point at the activity log line.
+11. **Snapshot restore.** Sync page, click **Rebuild cloud replica**. Point at the activity log line.
     *"A device that falls far behind restores its replica from a Qdrant Server snapshot in one download, without touching its private notes."*
 
 If something breaks: the Network switch only simulates loss on that device, so flipping it back on fixes most things. If a dashboard says "Device not responding", the process is down; restart it. If the answer box never appears, the language model is not running; answers still work, composed from notes.

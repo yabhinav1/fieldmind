@@ -31,7 +31,7 @@ Do this twice, once for `edge-a` and once for `edge-b`.
    | `FIELDMIND_PEERS` | the other Space's URL, for example `https://<you>-fieldmind-b.hf.space` (optional: lets the two devices exchange notes directly if the cloud is down) |
    | `FIELDMIND_PEER_TOKEN` | any shared string, the same on both Spaces (add as a **secret**) |
 
-5. The Space builds (about 5 minutes) and starts. The first start downloads the models (about 260 MB, another minute). Then open the Space's URL, enter the PIN, click **Demo guide**.
+5. The Space builds (about 5 minutes) and starts. The first start downloads the models (about 860 MB with both speech models; add `FIELDMIND_SPEECH_MULTILINGUAL=0` to the variables to keep it near 400 MB on the free tier). Then open the Space's URL, enter the PIN, click **Demo guide**.
 
 The Dockerfile already serves on port 7860, which is what Spaces expect, so no other configuration is needed.
 

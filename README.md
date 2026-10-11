@@ -30,7 +30,7 @@ Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 | Work through intermittent connectivity | Every change goes to a durable outbox first. It survives restarts and replays when the link returns, urgent items first. |
 | Sync with Qdrant Server | Uploads are compare-and-swap writes. Small downloads use a manifest diff. A device that is far behind restores its replica from a Qdrant Server shard snapshot. |
 | Evolving memory, updates and conflicts | Follow-up notes replace earlier beliefs. Concurrent edits merge field by field. True clashes wait for a person and nothing is overwritten. |
-| Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN. Installable on a phone with a thumb-friendly layout; notes can be dictated and are transcribed on the device by Whisper; a shift report downloads as Markdown; an encrypted backup moves a device's private memory to a replacement. |
+| Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN. Installable on a phone with a thumb-friendly layout; notes can be dictated hands-free in any language, transcribed on the device by Whisper; a shift report downloads as Markdown; an encrypted backup moves a device's private memory to a replacement. |
 | A meaningful edge-to-cloud workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes and photos flow back to the fleet. When the cloud is out of reach, devices on the same network learn from each other directly. |
 
 [docs/requirements.md](docs/requirements.md) maps each goal to its code and tests.
@@ -106,7 +106,7 @@ Every memory carries a revision number. The device remembers which cloud revisio
 | Cloud collection lost or rebuilt | Devices notice the gap and upload again |
 | Headquarters manual and a field note about the same asset | The field note links to the manual and never replaces it |
 | Note edited while its upload is in flight | The edit is rebased onto the uploaded revision and stays queued; nothing is lost |
-| One queued change keeps failing while the cloud is up | Set aside after five attempts so the rest of the queue drains; retried from the Sync tab |
+| One queued change keeps failing while the cloud is up | Set aside after five attempts so the rest of the queue drains; retried from the Sync page |
 | Only tags or kind changed | The payload travels without the vectors |
 | Cloud unreachable for days | Devices on the same network exchange shareable notes directly (`FIELDMIND_PEERS`, one fleet token); the cloud settles revisions when it returns |
 | Two notes match a question equally well | The more recent one comes first; the boost fades over thirty days |
@@ -128,7 +128,7 @@ This starts Qdrant Server and two edge devices in Linux containers:
 - edge-a at http://localhost:8001
 - edge-b at http://localhost:8002
 
-The first start downloads the embedding, name and reranking models (about 260 MB). Each device has no PIN yet: its lock screen asks for a one-time **setup code**, printed in the compose output (`edge-a ... enter setup code A1B2C3 on the lock screen`), and the PIN you choose. From then on it is just the PIN. To skip that step, run with `FIELDMIND_PIN=2468 docker compose ...`. Click **Demo guide** at the bottom of the sidebar on either dashboard.
+The first start downloads the embedding, name, reranking and speech models (about 860 MB; set `FIELDMIND_SPEECH_MULTILINGUAL=0` to skip the 460 MB second speech model). Each device has no PIN yet: its lock screen asks for a one-time **setup code**, printed in the compose output (`edge-a ... enter setup code A1B2C3 on the lock screen`), and the PIN you choose. From then on it is just the PIN. To skip that step, run with `FIELDMIND_PIN=2468 docker compose ...`. Click **Demo guide** at the bottom of the sidebar on either dashboard.
 
 In this mode answers are composed from the notes; the language model runs in the from-source setup below. The two containers are also configured as peers, so cutting both uplinks still lets them exchange notes.
 
@@ -193,7 +193,7 @@ The script disconnects the device from the cloud's network, checks that it notic
 
 ### Phones and tablets
 
-`python -m fieldmind start --lan` binds the dashboards to the local network. Open the address on a phone and choose *Add to Home Screen*: the dashboard installs as an app and its shell stays available offline (no note text is ever cached by the browser). A device with no PIN yet prints a one-time setup code in its console (the `start` command repeats it); the first person to open the dashboard from another machine enters that code with the PIN they choose, so only someone who can read the device's console can claim it. On the device itself no code is needed. The Dictate button records a few seconds and the device transcribes them with Whisper; the microphone needs an https address (or localhost).
+`python -m fieldmind start --lan` binds the dashboards to the local network. Open the address on a phone and choose *Add to Home Screen*: the dashboard installs as an app and its shell stays available offline (no note text is ever cached by the browser). A device with no PIN yet prints a one-time setup code in its console (the `start` command repeats it); the first person to open the dashboard from another machine enters that code with the PIN they choose, so only someone who can read the device's console can claim it. On the device itself no code is needed. The Dictate button is hands-free: speak, pause, and the words appear in any language, transcribed on the device by Whisper; it stops by itself when you go quiet. The microphone needs an https address (or localhost).
 
 ## Demo script (5 minutes)
 
@@ -215,7 +215,7 @@ Open both dashboards side by side and unlock them. The **Demo guide** button (bo
 
 ## Tests
 
-106 tests, run on every push by GitHub Actions against a real Qdrant Server and a real browser. Most run two devices against a shared cloud and cover offline work, restart safety, privacy, name masking, priority, merging, conflicts, deletion, withdrawal, recovery, the PIN lock, the source check on generated answers, the reranker, policy learning, peer exchange, photos, sealing on disk, a failing outbox entry, an edit made mid-upload, a snapshot restore that fails midway, captures racing sync cycles, staged conflicts, the shift report, encrypted backup and restore, a Hindi note found by an English question, and the dashboard driven in Chromium (Playwright). Three need a real Qdrant Server on `localhost:6333` (snapshot restore, real outage detection) and are skipped when none is running.
+111 tests, run on every push by GitHub Actions against a real Qdrant Server and a real browser. Most run two devices against a shared cloud and cover offline work, restart safety, privacy, name masking, priority, merging, conflicts, deletion, withdrawal, recovery, the PIN lock, the source check on generated answers, the reranker, policy learning, peer exchange, photos, sealing on disk, a failing outbox entry, an edit made mid-upload, a snapshot restore that fails midway, captures racing sync cycles, staged conflicts, the shift report, encrypted backup and restore, a Hindi note found by an English question, a Hindi clip transcribed in Devanagari with the language detected, and the dashboard driven in Chromium (Playwright). Three need a real Qdrant Server on `localhost:6333` (snapshot restore, real outage detection) and are skipped when none is running.
 
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
@@ -235,7 +235,7 @@ Ryzen 7 7435HS, 32 GB RAM, RTX 3050 4 GB.
 | Replica restore from a snapshot (15 memories) | under 2 s |
 | Device start (models already on disk) | about 2 s |
 
-Disk: each device reserves about 430 MB, because every Qdrant Edge shard preallocates its write-ahead log and storage pages (a third shard, 215 MB, when photos are on). Models take about 400 MB (embedding, names, reranker, Whisper), plus 590 MB for the optional photo models and 2 GB for the optional language model.
+Disk: each device reserves about 430 MB, because every Qdrant Edge shard preallocates its write-ahead log and storage pages (a third shard, 215 MB, when photos are on). Models take about 860 MB (embedding, names, reranker, Whisper base and small), plus 590 MB for the optional photo models and 2 GB for the optional language model.
 
 ## Known limits
 

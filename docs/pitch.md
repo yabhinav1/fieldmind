@@ -57,7 +57,7 @@ Devices on the same network still learn from each other. Each device offers the 
 A photo is captured with a caption. The caption is an ordinary memory and decides the scope; the photo follows it. A third Qdrant Edge shard holds one CLIP vector per photo, so "the corroded flange" finds the photo as well as the caption. EXIF data (position, time, camera) is stripped, only thumbnails leave the device, and they travel in a second collection with their vector. It is optional because the model pair is 590 MB.
 
 **What happens to a change that keeps failing?**
-If the cloud is up but one queued change fails for its own reasons, it is set aside after five attempts so everything behind it, including urgent safety notes, still goes. The Sync tab shows it with a Retry button. A change that fails because the link dropped is simply retried next cycle.
+If the cloud is up but one queued change fails for its own reasons, it is set aside after five attempts so everything behind it, including urgent safety notes, still goes. The Sync page shows it with a Retry button. A change that fails because the link dropped is simply retried next cycle.
 
 **Is the language model required?**
 No. Without it, answers are composed from the retrieved notes. With it, a 3B model on the device phrases the answer and cites its sources. Either way there is no cloud call.
@@ -66,7 +66,7 @@ No. Without it, answers are composed from the retrieved notes. With it, a 3B mod
 Devices notice that memories they already delivered are missing and upload them again.
 
 **What does it cost on the device?**
-About 430 MB of disk per device for the two shards, 260 MB for the embedding, name and reranking models, and 2 GB more if the language model is installed. Photos add a third shard (215 MB) and 590 MB of models. Search and policy run on the CPU.
+About 430 MB of disk per device for the two shards, 860 MB for the embedding, name, reranking and speech models, and 2 GB more if the language model is installed. Photos add a third shard (215 MB) and 590 MB of models. Search and policy run on the CPU.
 
 **Is anything protected on disk?**
 The text of private notes, the unmasked original of masked notes, every activity-log line and every photo file are sealed with a key created on first start in the device's data directory (mode 0600, or wherever FIELDMIND_KEY_FILE points). Copying the shard and journal files off the device without the key yields no private text. Vectors are not sealed; they are needed for search and cannot be turned back into text.
@@ -76,6 +76,6 @@ The text of private notes, the unmasked original of masked notes, every activity
 - Sealing protects against the data files being copied without the key file; someone who can read the key file too can read everything. Use full-disk encryption for that.
 - The PIN session runs over plain HTTP. Put TLS in front before exposing a device beyond the demo network.
 - Name masking is English only and will miss some names. Addresses are caught only when they start with a house, flat or plot number.
-- Dictation needs an https address (or localhost) for the microphone; the words themselves are transcribed on the device, with the language detected automatically.
+- Dictation needs an https address (or localhost) for the microphone; the words themselves are transcribed on the device, hands-free, with the language detected automatically. A phrase in Hindi or another non-English language takes a few seconds longer because a larger model re-reads it.
 - Pull sync compares a slim index of every memory in the device's site each cycle, which suits tens of thousands of memories, not millions.
 - Photos are not inspected for faces or name plates; the caption decides the scope. Peers exchange notes but not photos.
