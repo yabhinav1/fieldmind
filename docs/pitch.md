@@ -71,6 +71,9 @@ About 430 MB of disk per device for the two shards, 860 MB for the embedding, na
 **Is anything protected on disk?**
 The text of private notes, the unmasked original of masked notes, every activity-log line and every photo file are sealed with a key created on first start in the device's data directory (mode 0600, or wherever FIELDMIND_KEY_FILE points). Copying the shard and journal files off the device without the key yields no private text. Vectors are not sealed; they are needed for search and cannot be turned back into text.
 
+**Can a manager push something to everyone?**
+Yes. A supervisor announces to the site for a set time (a shift, a day, a week). It travels first like a safety note, sits at the top of every device's Work page with the time left, and is removed everywhere when the time is up, offline devices included. It can be taken down early.
+
 **Is there a permission system?**
 Yes, per device. A trainee device's shared notes travel marked *awaiting approval* and only supervisor devices see them until one approves; technicians and supervisors share at once, with no one to ask. Approval and rejection work offline and go to the cloud as compare-and-swap patches, so a note the author rewrote meanwhile goes back to the queue rather than being released. A rejection carries a reason back to the author as a private note. Safety hazards never wait. After ten approvals in a row the device is trusted and skips the queue; a rejection resets that.
 

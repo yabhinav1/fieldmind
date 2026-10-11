@@ -183,6 +183,7 @@ class SyncEngine:
         if not self._run_lock.acquire(blocking=False):
             return {"status": "busy"}
         try:
+            self.service.sweep_expired()
             if not self.check_link():
                 peers = (self.peers.exchange() if self.peers and self.peers.enabled and not self.forced_offline
                          else {})

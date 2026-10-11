@@ -219,6 +219,7 @@ function badges(m, options = {}) {
   else if (m.review === "rejected") out.push(`<span class="badge review-rejected">Rejected${m.review_reason ? `: ${esc(m.review_reason)}` : ""}</span>`);
   if (m.category && CATEGORY[m.category] && m.kind !== "reference") out.push(`<span class="badge">${CATEGORY[m.category]}</span>`);
   if (m.kind === "reference") out.push(`<span class="badge">Manual</span>`);
+  if (m.kind === "announcement") out.push(`<span class="badge review-pending">Announcement${m.expires_at ? ` · ends in ${span(Math.max(0, m.expires_at - Date.now() / 1000))}` : ""}</span>`);
   if (m.priority === 2 && m.scope !== "private") out.push(`<span class="badge urgent">Urgent</span>`);
   if (m.status === "superseded") out.push(`<span class="badge">Replaced</span>`);
   if (m.relation && m.supersedes) out.push(`<span class="badge">${esc(RELATION[m.relation] || "")}</span>`);
@@ -242,6 +243,7 @@ function itemThumb(m) {
 function itemTitle(m) {
   if (m.asset) return m.asset;
   if (m.kind === "reference") return "Manual";
+  if (m.kind === "announcement") return "Announcement";
   return CATEGORY[m.category] ? `${CATEGORY[m.category]} note` : "Note";
 }
 
@@ -376,11 +378,13 @@ function renderEvents(events) {
 async function poll() {
   if (state.locked) return;
   try {
-    const [status, log] = await Promise.all([
+    const [status, log, announced] = await Promise.all([
       api("/api/status"),
       api(`/api/events?after=${state.lastEvent}`),
+      api("/api/announcements").catch(() => null),
     ]);
     renderStatus(status);
+    if (announced) renderAnnouncements(announced);
     const changed = log.events.length > 0 && !state.firstEvents;
     renderEvents(log.events);
     if (state.firstEvents) renderRecent();
@@ -392,6 +396,26 @@ async function poll() {
     $("link-title").textContent = "Device not responding";
   }
 }
+
+function renderAnnouncements(data) {
+  $("announce-card").hidden = !data.can_announce;
+  const me = state.status?.device.id;
+  $("announcements").innerHTML = data.items.map((a) => `
+    <div class="announcement" data-announcement="${esc(a.id)}">
+      <span class="a-icon">${icon("bell")}</span>
+      <div><div class="a-text">${esc(a.text)}</div>
+        <div class="a-meta">${esc(a.author || "")} on ${esc(a.origin_device || a.device_id || "")} · ${ago(a.created_at)} · ends in ${span(Math.max(0, a.expires_at - Date.now() / 1000))}</div></div>
+      ${data.can_announce && (a.origin_device === me || a.mine) ? `<button class="btn ghost small" data-take-down="${esc(a.id)}">Take down</button>` : "<span></span>"}
+    </div>`).join("");
+}
+
+$("announce-send").addEventListener("click", async (event) => {
+  const text = $("announce-text").value.trim();
+  if (!text) { toast("Write the announcement first."); return; }
+  const body = { text, hours: Number($("announce-hours").value) };
+  const result = await attempt(() => api("/api/announcements", { method: "POST", body }), event.target);
+  if (result) { $("announce-text").value = ""; toast("Announced. It reaches every device on the next sync."); poll(); }
+});
 
 function refresh() {
   if (state.tab === "memory") { if (state.query) runSearch(false); else loadMemory(); }
@@ -1066,6 +1090,12 @@ $("cloud-tabs").addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const takeDown = event.target.closest("[data-take-down]");
+  if (takeDown) {
+    attempt(() => api(`/api/memories/${takeDown.dataset.takeDown}`, { method: "DELETE" }), takeDown)
+      .then((done) => { if (done) { toast("Taken down everywhere on the next sync."); poll(); } });
+    return;
+  }
   const note = event.target.closest(".thumb-note");
   if (note) { event.stopPropagation(); return window.open(note.previousElementSibling.src + "?shared=1", "_blank"); }
   const open = event.target.closest("[data-open]");

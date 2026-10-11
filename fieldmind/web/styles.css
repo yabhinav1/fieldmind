@@ -348,6 +348,13 @@ details.options { margin-top: 10px; }
 .queue-item.failed .order { background: var(--bad); color: #fff; }
 .thumb-wrap { position: relative; display: inline-block; }
 .thumb-note { position: absolute; left: 6px; bottom: 6px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--private); cursor: pointer; }
+.announcement { display: grid; grid-template-columns: 40px 1fr auto; gap: 14px; align-items: start; padding: 14px 16px; margin-bottom: 12px; border-radius: var(--radius); background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+.announcement .a-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--warn); color: #fff; display: grid; place-items: center; }
+.announcement .a-icon .icon { width: 20px; height: 20px; }
+.announcement .a-text { font-size: 15px; line-height: 1.5; font-weight: 500; }
+.announcement .a-meta { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+.announce-card { margin-bottom: 16px; }
+.announce-card h2 { font-size: 16px; }
 .review-card { border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius); padding: 16px; background: linear-gradient(135deg, var(--warn-bg), var(--surface) 65%); display: grid; gap: 10px; }
 .review-card .text { font-size: 15px; line-height: 1.5; }
 .review-card .reject { display: grid; gap: 8px; }

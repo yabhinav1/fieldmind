@@ -32,6 +32,7 @@ Each goal from Problem Statement 03, where it is implemented, how it is proven, 
 - **Checked answers.** A generated answer that reports a number, an asset or a verdict its cited note does not support is discarded, and the notes are quoted instead.
 - **Reranking.** A 23 MB cross-encoder reads the question with each candidate, on the device.
 - **A policy that learns.** Overrides are remembered as vectors and scopes, never text, and similar notes follow them.
+- **Announcements.** A supervisor tells the whole site something for a set time; it goes out first, shows on every Work page and expires everywhere.
 - **Approvals.** A trainee device's shared notes wait for a supervisor, who approves or rejects (with a reason) even offline; safety hazards never wait; a trusted device earns its way out of the queue.
 - **Device lock.** Every API route sits behind a PIN; sessions and the lockout counter survive restarts; the PIN can be changed.
 - **Sealed on disk.** Private text, the activity log and photo files are encrypted with a key kept on the device.

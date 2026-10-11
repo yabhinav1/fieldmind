@@ -56,8 +56,13 @@ PROTECTED_KINDS = ("reference",)
 CLOUD_FIELDS = (
     "text", "kind", "asset", "tags", "site", "scope", "category", "priority",
     "device_id", "origin_device", "author", "created_at", "updated_at", "rev",
-    "status", "supersedes", "superseded_by", "relation", "redacted", "schema",
+    "status", "supersedes", "superseded_by", "relation", "redacted", "schema", "expires_at",
 ) + REVIEW_FIELDS
+
+# An announcement from a supervisor: shared, sent first, shown on every device's
+# Work page until it expires, then removed everywhere.
+ANNOUNCEMENT = "announcement"
+MAX_ANNOUNCEMENT_HOURS = 24 * 14
 # Fields a person can change, and therefore the ones that can conflict.
 CONTENT_FIELDS = ("text", "kind", "asset", "tags", "status", "supersedes", "superseded_by", "relation")
 
@@ -256,7 +261,7 @@ class MemoryService:
             needle = text.lower()
             records = [r for r in records if needle in (r["payload"].get("text") or "").lower()]
         records.sort(key=lambda r: r["payload"].get("updated_at", 0), reverse=True)
-        return [self._present(r) for r in records]
+        return [self._present(r) for r in records if not _expired(r["payload"])]
 
     def stats(self) -> dict:
         def count(shard: Shard, **must: Any) -> int:
@@ -317,6 +322,63 @@ class MemoryService:
             out.append({**self._present(hit), "similarity": round(hit["score"], 3), "relation": relation})
         return out[:limit]
 
+    # -- announcements ----------------------------------------------------
+
+    def announce(self, text: str, hours: float = 8.0) -> dict:
+        """A supervisor tells the whole site something for a while. It travels like a
+        safety note (first, never waiting for approval) and disappears from every
+        device when the time is up."""
+        if self.role != "supervisor":
+            raise PermissionError("Only a supervisor's device can announce to the site.")
+        text = text.strip()
+        if not text:
+            raise ValueError("An announcement needs some text.")
+        if not 0 < hours <= MAX_ANNOUNCEMENT_HOURS:
+            raise ValueError(f"An announcement lasts between a minute and {MAX_ANNOUNCEMENT_HOURS // 24} days.")
+        with self.lock:
+            result = self._capture(text, ANNOUNCEMENT, None, [], SHARED, link=False, allow_duplicate=True,
+                                   supersede=False, learn=False, expires_at=time.time() + hours * 3600, mask=False)
+        if not result["created"]:
+            return result
+        if result["memory"]["scope"] == PRIVATE:
+            # A credential in an announcement: the policy kept it on this device.
+            raise ValueError("That text contains a credential, so it cannot be announced.")
+        self.journal.log("announce", f"Announced for {_duration(hours * 3600)}: {_clip(text)}", level="good",
+                         memory_id=result["memory"]["id"], hours=hours)
+        return result
+
+    def announcements(self) -> list[dict]:
+        """Announcements in force on this site, newest first."""
+        now = time.time()
+        out = []
+        for shard in (self.local, self.replica):
+            for record in shard.scroll(build_filter({"kind": ANNOUNCEMENT, "status": "active"})):
+                expires = record["payload"].get("expires_at") or 0
+                if expires > now and record["payload"].get("scope") != PRIVATE:
+                    out.append({**self._present(record), "expires_at": expires})
+        out.sort(key=lambda m: m["created_at"], reverse=True)
+        return out
+
+    def sweep_expired(self) -> int:
+        """Drop announcements whose time is up: this device's own are deleted (so the
+        tombstone reaches everyone), copies from others are simply forgotten."""
+        now = time.time()
+        gone = 0
+        with self.lock:
+            for record in self.local.scroll(build_filter({"kind": ANNOUNCEMENT}), fields=["expires_at", "text"]):
+                if 0 < (record["payload"].get("expires_at") or 0) <= now:
+                    self.delete(record["id"])
+                    gone += 1
+            stale = [r["id"] for r in self.replica.scroll(build_filter({"kind": ANNOUNCEMENT}), fields=["expires_at"])
+                     if 0 < (r["payload"].get("expires_at") or 0) <= now]
+            if stale:
+                self.replica.delete(stale)
+                self.replica.flush()
+                gone += len(stale)
+        if gone:
+            self.journal.log("announce", f"{gone} announcement{'s' if gone != 1 else ''} expired and were removed.")
+        return gone
+
     def capture(self, text: str, kind: str = "observation", asset: str | None = None,
                 tags: list[str] | None = None, scope: str | None = None,
                 link: bool = True, allow_duplicate: bool = False, supersede: bool = True) -> dict:
@@ -330,8 +392,13 @@ class MemoryService:
             return self._capture(text, kind, asset, tags, scope, link, allow_duplicate, supersede)
 
     def _capture(self, text: str, kind: str, asset: str | None, tags: list[str] | None, scope: str | None,
-                 link: bool, allow_duplicate: bool, supersede: bool) -> dict:
+                 link: bool, allow_duplicate: bool, supersede: bool, learn: bool = True,
+                 expires_at: float | None = None, mask: bool = True) -> dict:
         decision = self.policy.decide(text, override=scope)
+        if not mask and decision.scope == REDACTED:
+            # A supervisor's announcement names people on purpose; only a credential
+            # still keeps it on the device.
+            decision.scope, decision.shared_text = SHARED, None
         asset = asset or find_asset(text)
         related = self.related(text, asset) if link else []
 
@@ -343,7 +410,7 @@ class MemoryService:
 
         now = time.time()
         memory_id = str(uuid.uuid4())
-        if decision.decided_by == "user":
+        if decision.decided_by == "user" and learn:
             self.policy.learn(text, decision.scope)
 
         payload = {
@@ -369,6 +436,9 @@ class MemoryService:
         }
         if decision.shared_text:
             payload["shared_text"] = decision.shared_text
+        if expires_at:
+            payload["expires_at"] = expires_at
+            payload["priority"] = max(payload["priority"], 2)  # announcements go first and never wait
         self._stamp_review(payload)
 
         # A follow-up replaces what the device believed before, as long as doing so
@@ -382,7 +452,7 @@ class MemoryService:
         self.local.upsert(memory_id, dense, sparse, payload)
         self.journal.record_revision(memory_id, payload, "Written here")
         if decision.scope != PRIVATE:
-            self.journal.enqueue(memory_id, "upsert", decision.priority, 0, None)
+            self.journal.enqueue(memory_id, "upsert", payload["priority"], 0, None)
         self.journal.log(
             "capture",
             f"Saved as {SCOPE_WORDS[decision.scope]}: {_clip(text)}",
@@ -606,6 +676,8 @@ class MemoryService:
             weights = {"semantic": 1.0, "keyword": 1.0, "image": 1.0}
         results = []
         for entry in merged.values():
+            if _expired(entry["hit"]["payload"]):
+                continue
             score = sum(weights[s] * v for s, v in entry["strength"].items())
             if entry["hit"]["payload"].get("status") == "superseded":
                 score *= 0.5
@@ -789,6 +861,7 @@ class MemoryService:
             "relation": payload.get("relation"),
             "sync_state": "replica" if shard == "replica" else payload.get("sync_state", "private"),
             "via_peer": payload.get("via_peer"),
+            "expires_at": payload.get("expires_at"),
             "review": payload.get("review"),
             "reviewed_by": payload.get("reviewed_by"),
             "reviewed_at": payload.get("reviewed_at"),
@@ -816,6 +889,19 @@ def _passes(payload: dict, must: dict, must_not: dict | None) -> bool:
         if payload.get(key) in values:
             return False
     return True
+
+
+def _expired(payload: dict) -> bool:
+    expires = payload.get("expires_at") or 0
+    return 0 < expires <= time.time()
+
+
+def _duration(seconds: float) -> str:
+    if seconds < 3600:
+        return f"{max(1, round(seconds / 60))} min"
+    if seconds < 86400:
+        return f"{round(seconds / 3600)} h"
+    return f"{round(seconds / 86400)} days"
 
 
 def _clip(text: str, length: int = 70) -> str:

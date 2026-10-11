@@ -90,6 +90,11 @@ class ReviewBody(BaseModel):
     reason: str = ""
 
 
+class AnnounceBody(BaseModel):
+    text: str
+    hours: float = 8.0
+
+
 class PassphraseBody(BaseModel):
     passphrase: str
 
@@ -255,6 +260,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             "outbox": d.journal.counts(),
             "open_conflicts": len(d.journal.conflicts("open")),
             "open_approvals": len(d.service.approvals()),
+            "announcements": len(d.service.announcements()),
             "shards": {"local": local, "replica": replica},
             "engine": {"vector_store": "Qdrant Edge (in-process)", "dense_model": d.embedder.model_name,
                        "sparse_model": "BM25 (Qdrant Edge)", "dimensions": d.embedder.dim,
@@ -439,6 +445,24 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         return {"link": d.sync.link(), "outbox": outbox, "counts": d.journal.counts(),
                 "conflicts": d.journal.conflicts("open"), "approvals": d.service.approvals(),
                 "runs": d.journal.runs(12), "totals": d.journal.totals()}
+
+    @app.get("/api/announcements")
+    def announcements():
+        d = dev()
+        d.service.sweep_expired()
+        return {"items": d.service.announcements(), "can_announce": d.service.role == "supervisor"}
+
+    @app.post("/api/announcements")
+    def announce(body: AnnounceBody):
+        d = dev()
+        try:
+            result = d.service.announce(body.text, body.hours)
+        except PermissionError as error:
+            raise HTTPException(403, str(error)) from None
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        d.sync.poke()
+        return result
 
     @app.get("/api/approvals")
     def approvals():

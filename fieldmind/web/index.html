@@ -106,6 +106,21 @@
           <p class="sub">Capture what you learn in the field. Find it when you need it.</p>
         </div>
 
+        <div id="announcements"></div>
+        <div class="card announce-card" id="announce-card" hidden>
+          <h2>Announce to the site</h2>
+          <p class="hint">Every device on this site shows it at the top of Work until the time is up, then it is removed everywhere. It goes out first, like a safety note.</p>
+          <div class="field"><textarea id="announce-text" rows="2" maxlength="400" placeholder="e.g. Hot work permit needed in Bay 3 until 18:00; Supervisor Meera on radio channel 2"></textarea></div>
+          <div class="row wrap between">
+            <label class="check">Show for
+              <select id="announce-hours">
+                <option value="1">1 hour</option><option value="4">4 hours</option><option value="8" selected>8 hours (a shift)</option>
+                <option value="24">1 day</option><option value="72">3 days</option><option value="168">1 week</option>
+              </select></label>
+            <button class="btn primary small" id="announce-send">Announce</button>
+          </div>
+        </div>
+
         <div class="hero" id="start-here">
           <div class="hero-card">
             <span class="hero-icon"><svg class="icon"><use href="#i-note"/></svg></span>

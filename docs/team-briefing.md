@@ -157,6 +157,9 @@ Every memory has a revision. An upload is a conditional upsert that only applies
 **How is "what may leave the device" decided?**
 Three signals, all local: pattern detectors for credentials and contact details, a BERT model for people's names, and a classifier that compares the note with example sentences using the search embedding model. Credentials can never be shared, even if the user asks.
 
+**Can a manager push something to everyone?**
+Yes: announcements. A supervisor writes one with a duration; it syncs first like a safety note, shows at the top of every Work page on the site with the time left, and is dropped everywhere when it expires (each device checks on its own, so offline ones drop it too). Take down early with one click.
+
 **Is there a permission or approval system?**
 Yes, by device role. Trainee notes wait for a supervisor (except safety hazards); equals share automatically. Decisions work offline, merge safely with later edits, and a rejection carries the reason back. Trust is earned after ten approvals in a row. Roles are per device, not per person: that is the honest limit.
 
