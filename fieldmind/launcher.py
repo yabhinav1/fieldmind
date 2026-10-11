@@ -75,6 +75,11 @@ def start_cloud(settings: Settings) -> None:
     if not _local_cloud(settings.cloud_url):
         print(f"Using the cloud at {settings.cloud_url}")
         return
+    from .cloud import Cloud
+
+    if Cloud(settings.cloud_url, settings.cloud_api_key, settings.collection).reachable():
+        print(f"Qdrant Server is already running at {settings.cloud_url}")
+        return
     if not shutil.which("docker"):
         print("Docker is not installed, so no cloud was started. The devices work offline and sync to peers if configured.")
         return
@@ -85,7 +90,7 @@ def start_cloud(settings: Settings) -> None:
 
 
 def start(settings: Settings, only: str | None = None, lan: bool = False, open_browser: bool = True,
-          pin: str | None = None) -> int:
+          pin: str | None = None, roles: dict[str, str] | None = None) -> int:
     start_cloud(settings)
     devices = [d for d in DEVICES if not only or d[0] == only] or [(only, 8001, "technician")]
     host = "0.0.0.0" if lan else "127.0.0.1"
@@ -100,9 +105,12 @@ def start(settings: Settings, only: str | None = None, lan: bool = False, open_b
             print(f"{name} is already running on port {port}.")
             continue
         out = open(logs / f"{name}.log", "ab")
+        command = [sys.executable, "-m", "fieldmind", "serve", "--device", name, "--port", str(port), "--author", author,
+                   "--host", host]
+        if roles and roles.get(name):
+            command += ["--role", roles[name]]
         process = subprocess.Popen(
-            [sys.executable, "-m", "fieldmind", "serve", "--device", name, "--port", str(port), "--author", author,
-             "--host", host],
+            command,
             cwd=str(ROOT), env=env, stdout=out, stderr=subprocess.STDOUT,
             start_new_session=True,
         )
@@ -113,7 +121,8 @@ def start(settings: Settings, only: str | None = None, lan: bool = False, open_b
     for name, port in started:
         url = f"http://127.0.0.1:{port}"
         if _ready(port):
-            print(f"{name} ready at {url}" + (f"  (PIN {pin})" if pin else ""))
+            role = (roles or {}).get(name)
+            print(f"{name} ready at {url}" + (f"  (PIN {pin})" if pin else "") + (f"  role: {role}" if role else ""))
             code = _setup_code(logs / f"{name}.log")
             if code:
                 print(f"  {name} has no PIN yet. On this computer, just choose one on the lock screen. "

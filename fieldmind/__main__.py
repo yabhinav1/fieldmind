@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--author")
     serve.add_argument("--cloud-url")
     serve.add_argument("--pin", help="pre-set the device PIN")
+    serve.add_argument("--role", choices=("trainee", "technician", "supervisor"),
+                       help="trainee notes wait for a supervisor's approval; technician (default) and supervisor share at once")
 
     seed = sub.add_parser("seed-cloud", help="publish reference knowledge to the cloud")
     seed.add_argument("--cloud-url")
@@ -46,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("--pin", help="pre-set the device PIN")
     start.add_argument("--lan", action="store_true", help="let phones and other computers open the dashboards")
     start.add_argument("--no-browser", action="store_true")
+    start.add_argument("--role", action="append", default=[], metavar="DEVICE=ROLE",
+                       help="for example --role edge-a=trainee --role edge-b=supervisor")
 
     sub.add_parser("stop", help="stop the devices started with 'start'")
 
@@ -55,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     settings = Settings()
-    for name in ("device", "port", "host", "site", "author", "cloud_url", "pin"):
+    for name in ("device", "port", "host", "site", "author", "cloud_url", "pin", "role"):
         value = getattr(args, name, None)
         if value is not None:
             setattr(settings, "device_id" if name == "device" else name, value)
@@ -69,7 +73,9 @@ def main(argv: list[str] | None = None) -> int:
         from . import launcher
 
         if args.command == "start":
-            return launcher.start(settings, only=args.only, lan=args.lan, open_browser=not args.no_browser, pin=args.pin)
+            roles = dict(item.split("=", 1) for item in args.role if "=" in item)
+            return launcher.start(settings, only=args.only, lan=args.lan, open_browser=not args.no_browser, pin=args.pin,
+                                  roles=roles)
         if args.command == "stop":
             return launcher.stop(settings)
         return launcher.reset_all(settings, pin=args.pin, open_browser=not args.no_browser)
