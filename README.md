@@ -205,11 +205,11 @@ Open both dashboards side by side and unlock them. The **Demo guide** button (bo
 4. **Search and ask with no network.** Search `is a vibration of 7.2 mm/s acceptable`. Results arrive in about a millisecond with 0 network calls. The answer is written on the device from a manual that was downloaded earlier, and cites it.
 5. **See a decision being made.** Type `Suresh and Priya replaced the coupling on pump P-102, call 9876543210 if it trips` in the note box. The preview shows what the cloud would receive, with both names and the number masked.
 6. **Reconnect.** Turn *Network* on. The queue drains, the gas leak note goes first.
-7. **Prove privacy.** Open the *Cloud* tab. The health note and the password are not there. Names and the phone number are masked.
+7. **Prove privacy.** Open the *Cloud* page. The health note and the password are not there. Names and the phone number are masked.
 8. **Fleet learning.** On edge-b, search `pump bearing vibration`. The note from edge-a is there.
-9. **Conflict.** Either click *Stage a conflict* in the Demo guide (another device's edit lands in the cloud while this device edits the same note differently), or do it by hand: turn *Network* off on both, change the same note differently on each, turn edge-a on, then edge-b. The *Sync* tab shows *Needs a decision* with both versions side by side.
+9. **Conflict.** Either click *Stage a conflict* in the Demo guide (another device's edit lands in the cloud while this device edits the same note differently), or do it by hand: turn *Network* off on both, change the same note differently on each, turn edge-a on, then edge-b. The *Sync* page shows *Conflicts* with both versions side by side.
 10. **Evolving memory.** On edge-b, record `Pump P-102 bearing replaced, vibration now 1.8 mm/s, normal`. Ask edge-a `what is the condition of pump P-102`. It answers with the new state.
-11. **Snapshot restore.** On the *Sync* tab, click *Rebuild cloud replica*. The activity log reports a restore from a Qdrant Server snapshot. Private notes are untouched.
+11. **Snapshot restore.** On the *Sync* page, click *Rebuild cloud replica*. The activity log reports a restore from a Qdrant Server snapshot. Private notes are untouched.
 
 `python scripts/scenario.py <PIN>` runs the same story against the two running devices (after you have set their PIN once) and checks all 30 steps. [docs/demo-video.md](docs/demo-video.md) is a shot-by-shot script for recording it.
 
