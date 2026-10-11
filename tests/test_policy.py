@@ -81,6 +81,11 @@ def test_bare_names_are_masked_without_a_title(policy, text, hidden):
     ("Contractor with badge #A1234 left the MCC-2 panel open", "badge", "A1234"),
     ("Spare parts delivered to Flat 12, 3rd Cross, Indiranagar for the V-17 job", "address", "Flat 12, 3rd Cross"),
     ("Emp id 48213 reported the boiler B-2 pressure at 6.1 bar", "badge", "48213"),
+    ("Pump P-102 coupling spares are at 45 MG Road, collect them before the repair", "address", "45 MG Road"),
+    ("Sent the motor M-9 to 7/2 Gandhi Nagar for rewinding", "address", "7/2 Gandhi Nagar"),
+    ("Pump P-102 spares warehouse moved to Sector 12, Noida", "address", "Sector 12, Noida"),
+    ("Contractor's yard is behind Kalyan bus stand, send the V-17 gasket there", "address", "behind Kalyan bus stand"),
+    ("Courier the C-3 bearing to the vendor, pincode 560038", "address", "560038"),
 ])
 def test_vehicles_badges_and_addresses_are_masked(policy, text, signal, hidden):
     decision = policy.decide(text)
@@ -91,8 +96,16 @@ def test_vehicles_badges_and_addresses_are_masked(policy, text, signal, hidden):
 def test_readings_and_asset_tags_are_not_mistaken_for_identifiers(policy):
     for text in ("Boiler B-2 pressure 6.1 bar, safety valve lifts at 7.5 bar",
                  "Motor M-9 winding temperature 96C, trips at 155 C",
-                 "Conveyor C-3 belt speed 1250 rpm after the gearbox change"):
+                 "Conveyor C-3 belt speed 1250 rpm after the gearbox change",
+                 "Forklift parked near bay 3, phase 2 of the shutdown starts at 6",
+                 "Block C panel MCC-2 left open, 3 phase supply isolated"):
         assert not policy.decide(text).signals, text
+
+
+def test_a_postal_code_is_an_address_not_a_credential(policy):
+    decision = policy.decide("Courier the C-3 bearing to the vendor, pin code 560038")
+    assert {s["type"] for s in decision.signals} == {"address"}, decision.signals
+    assert decision.scope == "redacted" and "560038" not in decision.shared_text
 
 
 def test_equipment_and_vendors_are_not_mistaken_for_people(policy):

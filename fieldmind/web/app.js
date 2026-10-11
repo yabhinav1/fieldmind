@@ -301,7 +301,7 @@ function renderStatus(s) {
     ["list", "Pending items", waiting ? `<span class="warn">${waiting}</span>` : "0"],
     ["merge", "Need a decision", s.open_conflicts ? `<span class="warn">${s.open_conflicts}</span>` : "0"],
     ["layers", "Memories", `${memory.local + memory.replica} <span class="hint">· ${memory.private} private</span>`],
-    ["disk", "Storage used", esc(bytes(disk))],
+    ["disk", "Storage reserved", `${esc(bytes(disk))} <span class="hint">· set aside up front</span>`],
   ];
   $("device-status").innerHTML = rows.map(([i, label, value]) =>
     `<div class="status-row">${icon(i)}<span>${label}</span><b>${value}</b></div>`).join("");
@@ -318,7 +318,7 @@ function renderStatus(s) {
       <dt>Dictation</dt><dd>${s.engine.speech_model ? esc(s.engine.speech_model) : s.engine.speech_loading ? "Speech model loading…" : s.engine.speech_error ? `Failed: ${esc(s.engine.speech_error)}` : "Browser speech service"}</dd>
       <dt>Photos</dt><dd>${s.engine.vision_model ? `${esc(s.engine.vision_model)} · ${s.memory.photos || 0} stored` : s.engine.photos ? "Vision model loading…" : "Off"}</dd>
       <dt>On disk</dt><dd>${s.engine.sealed ? "Private text and activity sealed with the device key" : "Not sealed"}</dd>
-      <dt>Storage reserved</dt><dd>${bytes(disk)}</dd>
+      <dt>Storage reserved</dt><dd>${bytes(disk)} · Qdrant Edge sets aside each shard's log and pages when it is created, so this does not grow with the first thousands of notes</dd>
     </dl>`;
   $("rerank-label").hidden = !s.engine.reranker;
   $("add-photo").hidden = !s.engine.photos;

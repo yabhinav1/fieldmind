@@ -151,6 +151,14 @@ class Journal:
             row["message"] = self.vault.unseal(row["message"])
         return rows[::-1]
 
+    def export_events(self):
+        """Every retained activity line, oldest first, unsealed, for the audit export."""
+        with self._lock:
+            rows = [_row(r) for r in self._db.execute("SELECT * FROM events ORDER BY id ASC").fetchall()]
+        for row in rows:
+            row["message"] = self.vault.unseal(row["message"])
+            yield row
+
     # -- outbox -----------------------------------------------------------
 
     def enqueue(self, memory_id: str, op: str, priority: int, base_rev: int, base_payload: dict | None) -> None:

@@ -92,6 +92,10 @@ class Settings:
     speech_multilingual: str | None = field(default_factory=lambda: None if _env("SPEECH_MULTILINGUAL", "small") in ("0", "false", "no", "")
                                             else _env("SPEECH_MULTILINGUAL", "small"))
 
+    # Name recognition for masking: "english" (default, 105 MB) or "multilingual"
+    # (180 MB more), which also reads names in Devanagari, Tamil and other scripts.
+    name_model: str = field(default_factory=lambda: _env("NAME_MODEL", "english"))
+
     # Rerank search candidates with a small cross-encoder (about 23 MB). Answers
     # always use it when it is loaded; search uses it on request.
     rerank: bool = field(default_factory=lambda: _env("RERANK", "1") not in ("0", "false", "no", ""))

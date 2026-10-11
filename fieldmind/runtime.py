@@ -56,7 +56,7 @@ def build(settings: Settings, embedder: Embedder | None = None, cloud_client=Non
           speech: Transcriber | None = None) -> Device:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     embedder = embedder or Embedder(settings.models_dir)
-    names = names or NameFinder(settings.models_dir)
+    names = names or NameFinder(settings.models_dir, settings.name_model)
     if reranker is None and settings.rerank:
         reranker = Reranker(settings.models_dir)
     vault = Vault.open(settings.vault_key_file)

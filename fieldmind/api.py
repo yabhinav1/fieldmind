@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -249,7 +250,7 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             "engine": {"vector_store": "Qdrant Edge (in-process)", "dense_model": d.embedder.model_name,
                        "sparse_model": "BM25 (Qdrant Edge)", "dimensions": d.embedder.dim,
                        "answer_model": settings.ollama_model if d.service.llm.available() else None,
-                       "name_model": "BERT NER (ONNX)" if d.names.available else None,
+                       "name_model": d.names.label if d.names.available else None,
                        "reranker": "MiniLM cross-encoder (ONNX)" if d.service.reranker else None,
                        "learned_examples": d.service.policy.learned_count,
                        "sealed": bool(d.vault and d.vault.active),
@@ -347,6 +348,23 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             name = f"fieldmind-{settings.device_id}-{time.strftime('%Y-%m-%d')}.md"
             headers["Content-Disposition"] = f'attachment; filename="{name}"'
         return PlainTextResponse(text, media_type="text/markdown; charset=utf-8", headers=headers)
+
+    @app.get("/api/audit")
+    def audit(download: bool = True):
+        """The device's activity log as JSON lines, oldest first: every decision,
+        override, sync step and conflict with its timestamp. Private note text
+        quoted in messages is included, so the file is for the device's owner."""
+        d = dev()
+        lines = (json.dumps({"ts": e["ts"], "at": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(e["ts"])),
+                             "type": e["type"], "level": e["level"], "message": e["message"],
+                             "data": json.loads(e["data"]) if isinstance(e.get("data"), str) else e.get("data"),
+                             "device": settings.device_id, "site": settings.site}, ensure_ascii=False) + "\n"
+                 for e in d.journal.export_events())
+        headers = {}
+        if download:
+            headers["Content-Disposition"] = f'attachment; filename="fieldmind-{settings.device_id}-audit-{time.strftime("%Y-%m-%d")}.jsonl"'
+        d.journal.log("audit", "Exported the activity log.")
+        return StreamingResponse(lines, media_type="application/x-ndjson; charset=utf-8", headers=headers)
 
     @app.get("/api/memories/{memory_id}")
     def memory(memory_id: str):

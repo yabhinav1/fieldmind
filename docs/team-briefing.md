@@ -55,8 +55,8 @@ Key design points you may be asked about:
 **Search is "federated".** Each shard is searched separately for meaning (cosine) and keywords (BM25). Those raw scores are comparable across shards, so we combine them into one relevance score in the app. (If we had used rank-based fusion inside each shard, the best hit of an almost-empty shard would tie with the best hit of a full one.)
 
 **Policy engine, three signals, all on the device, about 20 ms:**
-1. Pattern detectors for passwords/API keys, phone numbers, emails, ID numbers.
-2. A name recognition model (small BERT, ONNX, ~105 MB) that finds people's names even without a title in front.
+1. Pattern detectors for passwords/API keys, phone numbers, emails, ID numbers, vehicle plates, badge numbers, postal codes and addresses.
+2. A name recognition model (small BERT, ONNX, ~105 MB) that finds people's names even without a title in front; `FIELDMIND_NAME_MODEL=multilingual` adds one for Devanagari, Tamil and other scripts.
 3. A semantic classifier that compares the note with example sentences per category (safety hazard, equipment fault, procedure, routine reading, personal/health, people matter, personal note) using the same embedding model as search.
 
 Outcomes: safety and equipment notes are shared (safety is marked urgent and sent first), personal/health/HR notes stay private, credentials always stay private even if the user asks to share. A useful note that also contains a name becomes "shared with masking". The vector uploaded for a masked note is computed from the masked text, so the embedding cannot leak the name.

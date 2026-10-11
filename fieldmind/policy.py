@@ -107,7 +107,7 @@ CATEGORY_LABEL = {
 
 DETECTORS: list[tuple[str, str, re.Pattern]] = [
     ("credential", "secret",
-     re.compile(r"(?i)\b(?:password|passwd|pwd|passcode|api[ _-]?key|secret|token|pin)\b\s*(?:is|=|:)?\s*\S+")),
+     re.compile(r"(?i)\b(?:password|passwd|pwd|passcode|api[ _-]?key|secret|token|pin(?!\s?code))\b\s*(?:is|=|:)?\s*\S+")),
     ("email", "contact", re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")),
     # Aadhaar (12 digits in groups of 4) and PAN (AAAAA9999A).
     ("id_number", "identity", re.compile(r"\b\d{4}[ -]?\d{4}[ -]?\d{4}\b|\b[A-Z]{5}\d{4}[A-Z]\b")),
@@ -118,6 +118,19 @@ DETECTORS: list[tuple[str, str, re.Pattern]] = [
      re.compile(r"(?i)\b(?:emp(?:loyee)?|badge|staff|worker)\s*(?:id|no|number|#)?\.?\s*[:#-]?\s*[A-Z]{0,3}\d{3,8}\b")),
     # A street address starting at a house, flat or plot number, up to the next clause.
     ("address", "contact", re.compile(r"(?i)\b(?:flat|house|plot|door|h\.?\s?no)\s*(?:no\.?)?\s*#?\s*\d+[A-Za-z]?\b[^.,;\n]{0,50}")),
+    # A number followed by a street: "12, 3rd Cross", "45 MG Road", "7/2 Gandhi Nagar", "221B Baker Street".
+    ("address", "contact", re.compile(
+        r"\b\d{1,4}[A-Za-z]?(?:/\d{1,4})?,?\s+(?:\d{1,2}(?:st|nd|rd|th)\s+)?(?:[A-Z][\w.]*\s+){0,3}"
+        r"(?:Cross|Main|Road|Rd|Street|St|Lane|Marg|Nagar|Colony|Layout|Chowk|Gali|Avenue|Enclave)\b[^.,;\n]{0,50}")),
+    # "Sector 12, Noida", "Phase 2, Hinjewadi": a numbered area followed by a named place.
+    ("address", "contact", re.compile(r"\b(?:Sector|Phase|Block|Ward)\s*-?\s*\d{1,3}[A-Za-z]?\s*,\s*[A-Z][a-z]+(?:\s[A-Z][a-z]+)?")),
+    # A landmark: "near Hanuman temple", "opposite the Shanti Hospital", "behind Kalyan bus stand".
+    ("address", "contact", re.compile(
+        r"(?i)\b(?:near|opposite|opp\.?|behind|next to|beside)\s+(?:the\s+)?(?:[A-Z][\w.]*\s+){1,3}"
+        r"(?:temple|mandir|masjid|mosque|church|gurudwara|school|college|hospital|clinic|bus\s?stop|bus\s?stand|"
+        r"railway\s?station|metro\s?station|market|chowk|circle|petrol\s?pump|bank|mall)\b")),
+    # An Indian postal code, written as one.
+    ("address", "contact", re.compile(r"(?i)\b(?:pin\s?code|pincode)\s*[:#-]?\s*\d{6}\b")),
     ("phone", "contact", re.compile(r"(?<![\w.])(?:\+?\d{1,3}[ -]?)?(?:\d[ -]?){9,11}\d(?![\w.])")),
     ("person", "identity",
      re.compile(r"\b(?:Mr|Mrs|Ms|Dr|Technician|Operator|Engineer|Supervisor|Worker)\.?\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)")),

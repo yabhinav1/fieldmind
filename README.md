@@ -30,7 +30,7 @@ Problem statement 03: AI-Powered Edge Memory and Intelligence Platform.
 | Work through intermittent connectivity | Every change goes to a durable outbox first. It survives restarts and replays when the link returns, urgent items first. |
 | Sync with Qdrant Server | Uploads are compare-and-swap writes. Small downloads use a manifest diff. A device that is far behind restores its replica from a Qdrant Server shard snapshot. |
 | Evolving memory, updates and conflicts | Follow-up notes replace earlier beliefs. Concurrent edits merge field by field. True clashes wait for a person and nothing is overwritten. |
-| Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN. Installable on a phone with a thumb-friendly layout; notes can be dictated hands-free in any language, transcribed on the device by Whisper; a shift report downloads as Markdown; an encrypted backup moves a device's private memory to a replacement. |
+| Interface to inspect everything | Dashboard with memory, search results, sync queue, conflicts and a live activity log, behind a device PIN, exportable as an audit file (JSON lines) from the *Sync* page. Installable on a phone with a thumb-friendly layout; notes can be dictated hands-free in any language, transcribed on the device by Whisper; a shift report downloads as Markdown; an encrypted backup moves a device's private memory to a replacement. |
 | A meaningful edge-to-cloud workflow | Headquarters publishes manuals to the cloud, devices carry them offline, field notes and photos flow back to the fleet. When the cloud is out of reach, devices on the same network learn from each other directly. |
 
 [docs/requirements.md](docs/requirements.md) maps each goal to its code and tests.
@@ -71,8 +71,8 @@ flowchart LR
 
 The policy runs on the device in about 20 ms and combines three kinds of evidence.
 
-1. **Pattern detectors** for credentials, phone numbers, emails, identity numbers, vehicle registrations, badge numbers and street addresses.
-2. **A name recognition model** (quantised BERT, ONNX, about 105 MB) for people, with or without a title in front.
+1. **Pattern detectors** for credentials, phone numbers, emails, identity numbers, vehicle registrations, badge numbers, postal codes and addresses (a house or plot number, a numbered street, "Sector 12, Noida", a landmark such as "behind Kalyan bus stand").
+2. **A name recognition model** (quantised BERT, ONNX, about 105 MB) for people, with or without a title in front. `FIELDMIND_NAME_MODEL=multilingual` adds a second model (180 MB) that reads names in Devanagari, Tamil and other scripts, for dictated notes in those languages; the English model still runs alongside it.
 3. **A semantic classifier** that compares the note with example sentences per category, using the same local embedding model as search. A note that reads as two kinds at once (a hazard that is also about someone's injury) is flagged for a look.
 
 And it learns from the person: when a technician overrides a decision, the device keeps the note's vector and the chosen scope, never the text, and later notes at least 88% similar follow that choice. Credentials can never be learned into sharing.
@@ -215,7 +215,7 @@ Open both dashboards side by side and unlock them. The **Demo guide** button (bo
 
 ## Tests
 
-111 tests, run on every push by GitHub Actions against a real Qdrant Server and a real browser. Most run two devices against a shared cloud and cover offline work, restart safety, privacy, name masking, priority, merging, conflicts, deletion, withdrawal, recovery, the PIN lock, the source check on generated answers, the reranker, policy learning, peer exchange, photos, sealing on disk, a failing outbox entry, an edit made mid-upload, a snapshot restore that fails midway, captures racing sync cycles, staged conflicts, the shift report, encrypted backup and restore, a Hindi note found by an English question, a Hindi clip transcribed in Devanagari with the language detected, and the dashboard driven in Chromium (Playwright). Three need a real Qdrant Server on `localhost:6333` (snapshot restore, real outage detection) and are skipped when none is running.
+123 tests, run on every push by GitHub Actions against a real Qdrant Server and a real browser. Most run two devices against a shared cloud and cover offline work, restart safety, privacy, name masking, priority, merging, conflicts, deletion, withdrawal, recovery, the PIN lock, the source check on generated answers, the reranker, policy learning, peer exchange, photos, sealing on disk, a failing outbox entry, an edit made mid-upload, a snapshot restore that fails midway, captures racing sync cycles, staged conflicts, the shift report, encrypted backup and restore, a Hindi note found by an English question, a Hindi clip transcribed in Devanagari with the language detected, names masked in Hindi and Spanish with the multilingual name model, the audit export, and the dashboard driven in Chromium (Playwright). Three need a real Qdrant Server on `localhost:6333` (snapshot restore, real outage detection) and are skipped when none is running.
 
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
@@ -242,12 +242,12 @@ Disk: each device reserves about 430 MB, because every Qdrant Edge shard preallo
 - Private text, the activity log and photo files are sealed with a key file in the device's data directory. That stops the data files being read when copied off the device without the key; it does not stop someone who can read the key file too. Use full-disk encryption for that.
 - The PIN session is a cookie over plain HTTP, which is fine on the device itself and weak across a network. Put TLS in front before using `--lan` outside a demo.
 - The answer model is small. The source check catches numbers, asset tags and verdicts that do not come from the cited note, not every possible misreading, so answers always list the notes they were based on.
-- The name model is English and cased. It handles common Indian and Western names in our tests but will miss some. Addresses are caught only when they start with a house, flat or plot number.
+- The default name model is English and cased. It handles common Indian and Western names in our tests but will miss some; `FIELDMIND_NAME_MODEL=multilingual` adds a model for other scripts, which costs 180 MB and about 10 ms per note. Addresses are caught by pattern (a house or plot number, a numbered street, a numbered sector with a place name, a landmark, a postal code), so an address written another way gets through.
 - Dictation is hands-free: it listens, sends each phrase to the device as you pause, and stops by itself after a longer silence. Whisper (base, int8) transcribes on the device and detects the language, so Hindi, Tamil or Spanish come back as spoken; no audio leaves the device and it works offline and in every browser. Browsers only allow the microphone on https or localhost, so a device reached over plain http on a network needs TLS in front (or the panel's https proxy) before dictation works there. With FIELDMIND_SPEECH=0 the dashboard falls back to the browser's own recogniser, which Brave and Firefox do not provide.
 - Pull sync compares a slim index (revision and state) of every memory in the device's site on each cycle. That is fine for tens of thousands of memories, not millions.
 - Snapshot restore downloads the whole shard before trimming to the device's site, so other sites' data touches the disk briefly.
 - Photos are not inspected for faces or name plates; the caption decides the scope. Peers exchange notes but not photos.
-- The default embedding and name models are English. `FIELDMIND_EMBED_MODEL=multilingual` switches to a model that understands Hindi and other languages for search and classification (220 MB; every device in a fleet must use the same model, chosen before the first start); name masking stays English either way.
+- The default embedding and name models are English. `FIELDMIND_EMBED_MODEL=multilingual` switches to a model that understands Hindi and other languages for search and classification (220 MB; every device in a fleet must use the same model, chosen before the first start). Pair it with `FIELDMIND_NAME_MODEL=multilingual` so names in those languages are masked too.
 
 ## Project layout
 
