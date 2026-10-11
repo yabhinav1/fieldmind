@@ -79,7 +79,7 @@
     <div class="card"><div class="n">2</div><h3>Mixed notes</h3><p>One note can hold a fault the whole fleet needs and a colleague's name that must never leave the device.</p></div>
     <div class="card"><div class="n">3</div><h3>Drift</h3><p>Devices that work apart come back with different versions of the truth, and someone's edit gets lost.</p></div>
   </div>
-  <p class="note">FieldMind is one process on the device: Qdrant Edge for memory, small ONNX models for meaning, names, reranking and photos, SQLite for what is waiting, and a dashboard a technician can use with gloves on.</p>
+  <p class="note">FieldMind is one process on the device: Qdrant Edge for memory, small on-device models for meaning, names, reranking, speech and photos, SQLite for what is waiting, and a dashboard a technician can use with gloves on. Two devices run 24/7 on arm64 servers against Qdrant Cloud; the same code runs on a laptop or a Raspberry Pi.</p>
   <div class="num">02</div>
 </section>
 
@@ -87,7 +87,7 @@
   <h2>The device that keeps working</h2>
   <div class="split">
     <div class="steps">
-      <div class="step"><div class="n">1</div><div><h3>Record</h3><p>Write, dictate or photograph what you saw. The device shows what it will share before you save, and learns from your overrides.</p></div></div>
+      <div class="step"><div class="n">1</div><div><h3>Record</h3><p>Write, dictate or photograph what you saw. Speech is transcribed on the device by Whisper; the device shows what it will share before you save, and learns from your overrides.</p></div></div>
       <div class="step"><div class="n">2</div><div><h3>Find</h3><p>Hybrid search over your notes, your photos and headquarters manuals in about a millisecond. A cross-encoder rereads the best candidates.</p></div></div>
       <div class="step"><div class="n">3</div><div><h3>Ask</h3><p>A cited answer written on the device. Every number, asset and verdict is checked against the note it cites. No cloud call.</p></div></div>
     </div>
@@ -174,7 +174,7 @@
     <div class="metric"><div class="v">106</div><div class="l">automated tests on every push: two devices, a real Qdrant Server, a real browser</div></div>
     <div class="metric"><div class="v">30</div><div class="l">checks in the live end-to-end run</div></div>
   </div>
-  <p class="note">Ryzen 7 7435HS laptop, RTX 3050 4 GB. Also verified on Linux through a real network disconnect, and on arm64.</p>
+  <p class="note">Ryzen 7 7435HS laptop, RTX 3050 4 GB. Also verified on Linux through a real network disconnect, and in production on two arm64 servers with Qdrant Cloud. Dictation: about 0.4 s for a six-second clip on a CPU.</p>
   <div class="num">08</div>
 </section>
 
@@ -190,7 +190,7 @@
     </ul>
     <div>
       <div class="box" style="margin-bottom:.25in"><h4>Also in the box</h4>
-        <p style="margin:0;color:#d6dde9;font-size:15.5px;line-height:1.65">Private text sealed on disk · First PIN claimed with a console code · Devices learn from each other when the cloud is gone · Photos searchable by what they show · Encrypted backup to a replacement device · Shift report · Installable on a phone, dictation included · /healthz and /metrics</p>
+        <p style="margin:0;color:#d6dde9;font-size:15.5px;line-height:1.65">Dictation transcribed on the device (Whisper) · Private text sealed on disk · First PIN claimed with a console code · Devices learn from each other when the cloud is gone · Photos searchable by what they show · Encrypted backup to a replacement device · Shift report · One-click staged conflict · Installable on a phone · Hindi and other languages optional · /healthz and /metrics</p>
       </div>
       <div class="box"><h4>Next</h4>
         <p style="margin:0;color:#d6dde9;font-size:15.5px;line-height:1.65">TLS for remote dashboards · Faces and name plates in photos · Photos between peers</p>
@@ -199,6 +199,30 @@
   </div>
   <div class="foot"><b style="color:#e6ebf5">Team Compilers</b> &nbsp;·&nbsp; github.com/yabhinav1/fieldmind</div>
   <div class="num">09</div>
+</section>
+
+<section class="slide">
+  <h2>Try it live</h2>
+  <div class="two" style="grid-template-columns: 1fr 1fr; gap: .5in">
+    <div class="box" style="display:grid; grid-template-columns: 2.1in 1fr; gap: .3in; align-items: center">
+      <img src="img/qr-edge-a.png" alt="QR code for the live device" style="width:2.1in; height:2.1in; border-radius: 12px; background:#fff; padding: 6px">
+      <div><h4>Live device</h4>
+        <p style="margin:0; font-size:19px; font-weight:700; letter-spacing:-.01em">fieldmindedgea.hidenplay.net</p>
+        <p style="margin:.1in 0 0; color:#97a3ba; font-size:15px; line-height:1.5">edge-a, running 24/7 on an arm64 server with Qdrant Cloud. Ask us for the PIN, then click <b style="color:#e6ebf5">Demo guide</b>. A second device, edge-b, syncs with it.</p></div>
+    </div>
+    <div class="box" style="display:grid; grid-template-columns: 2.1in 1fr; gap: .3in; align-items: center">
+      <img src="img/qr-repo.png" alt="QR code for the repository" style="width:2.1in; height:2.1in; border-radius: 12px; background:#fff; padding: 6px">
+      <div><h4>Code and tests</h4>
+        <p style="margin:0; font-size:19px; font-weight:700; letter-spacing:-.01em">github.com/yabhinav1/fieldmind</p>
+        <p style="margin:.1in 0 0; color:#97a3ba; font-size:15px; line-height:1.5">MIT. 106 tests on every push against a real Qdrant Server and a real browser. <code>docker compose --profile demo up</code> runs the whole thing on any laptop.</p></div>
+    </div>
+  </div>
+  <div class="box" style="margin-top:.4in">
+    <h4>Five things to try in two minutes</h4>
+    <p style="margin:0; color:#d6dde9; font-size:16px; line-height:1.7">Turn the Network switch off and keep working &nbsp;·&nbsp; Click Dictate and speak a note &nbsp;·&nbsp; Ask “is a vibration of 7.2 mm/s acceptable” &nbsp;·&nbsp; Type a note with a name and a phone number and watch the preview mask them &nbsp;·&nbsp; Demo guide → Stage a conflict, then decide</p>
+  </div>
+  <div class="foot"><b style="color:#e6ebf5">Team Compilers</b> &nbsp;·&nbsp; Problem statement 03 · Qdrant Edge</div>
+  <div class="num">10</div>
 </section>
 
 </body>
