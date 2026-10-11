@@ -229,7 +229,7 @@ function badges(m, options = {}) {
 function thumbs(photos, size = "") {
   if (!photos || !photos.length) return "";
   return `<div class="thumbs ${size}">${photos.map((p) =>
-    `<img src="${esc(p.url)}" alt="Photo attached to this note" loading="lazy" width="${p.width}" height="${p.height}">`).join("")}</div>`;
+    `<span class="thumb-wrap"><img src="${esc(p.url)}" alt="Photo attached to this note" loading="lazy" width="${p.width}" height="${p.height}">${p.faces ? `<span class="thumb-note" title="The copy the fleet receives has the face pixelated. Click to see it.">${p.faces} face${p.faces === 1 ? "" : "s"} hidden when shared</span>` : ""}</span>`).join("")}</div>`;
 }
 
 function itemThumb(m) {
@@ -326,7 +326,8 @@ function renderStatus(s) {
       <dt>Learned choices</dt><dd>${s.engine.learned_examples || 0} from this device's overrides</dd>
       <dt>Answers</dt><dd>${esc(s.engine.answer_model || "Composed from notes")}</dd>
       <dt>Dictation</dt><dd>${s.engine.speech_model ? esc(s.engine.speech_model) : s.engine.speech_loading ? "Speech model loading…" : s.engine.speech_error ? `Failed: ${esc(s.engine.speech_error)}` : "Browser speech service"}</dd>
-      <dt>Photos</dt><dd>${s.engine.vision_model ? `${esc(s.engine.vision_model)} · ${s.memory.photos || 0} stored` : s.engine.photos ? "Vision model loading…" : "Off"}</dd>
+      <dt>Photos</dt><dd>${s.engine.vision_model ? `${esc(s.engine.vision_model)} · ${s.memory.photos || 0} stored${s.engine.faces ? " · faces hidden before a photo leaves (UltraFace, 1 MB)" : ""}` : s.engine.photos ? "Vision model loading…" : "Off"}</dd>
+      <dt>Pull sync</dt><dd>${s.engine.pull_mode === "changes" ? "Change log: only what moved since the last cycle" : "Full site listing this cycle"}</dd>
       <dt>On disk</dt><dd>${s.engine.sealed ? "Private text and activity sealed with the device key" : "Not sealed"}</dd>
       <dt>Storage reserved</dt><dd>${bytes(disk)} · Qdrant Edge sets aside each shard's log and pages when it is created, so this does not grow with the first thousands of notes</dd>
     </dl>`;
@@ -602,9 +603,15 @@ async function loadMemory() {
 // ---------------------------------------------------------------- drawers
 
 async function openMemory(id) {
-  const data = await attempt(() => api(`/api/memories/${id}`));
+  const [data, revs] = await Promise.all([attempt(() => api(`/api/memories/${id}`)), api(`/api/memories/${id}/revisions`).catch(() => null)]);
   if (!data) return;
   const m = data.memory;
+  const revisions = revs && revs.revisions.length > 1 ? `<div class="history"><h2>Revisions</h2>
+    ${revs.revisions.map((r, i) => `<div class="history-item ${i === 0 ? "current" : ""}">
+      <div>${i === 0 ? esc(r.text) : diff(r.text || "", m.text || "")}</div>
+      <div class="when row between"><span>Revision ${r.rev} · ${esc(r.note || "")} · ${esc(r.author || "")} on ${esc(r.device_id || "")} · ${ago(r.ts)}</span>
+        ${i === 0 ? "" : `<button class="link-btn" data-restore="${r.rev}">Restore</button>`}</div>
+    </div>`).join("")}</div>` : "";
   const history = data.history.length > 1 ? `<div class="history"><h2>How this changed</h2>
     ${data.history.map((h, i) => `<div class="history-item ${i === 0 ? "current" : ""}">
       <div>${esc(h.text)}</div><div class="when">${i === 0 ? "Current" : "Replaced"} · ${esc(h.device_id)} · ${ago(h.updated_at)}</div>
@@ -632,6 +639,7 @@ async function openMemory(id) {
       <button class="btn danger" id="edit-delete">Delete</button>
       <button class="btn primary" id="edit-save">Save changes</button>
     </div>
+    ${revisions}
     ${history}
     <dl class="kv">
       <dt>First written on</dt><dd>${esc(m.origin_device)}</dd>
@@ -651,6 +659,12 @@ async function openMemory(id) {
     const saved = await attempt(() => api(`/api/memories/${id}`, { method: "PATCH", body }), event.target);
     if (saved) { closeDrawer(); toast("Saved on this device."); poll(); refresh(); }
   };
+  document.querySelectorAll("#drawer-body [data-restore]").forEach((button) => {
+    button.onclick = async (event) => {
+      const done = await attempt(() => api(`/api/memories/${id}/revisions/${button.dataset.restore}/restore`, { method: "POST" }), event.target);
+      if (done) { toast(`Revision ${button.dataset.restore} brought back as a new change.`); poll(); refresh(); openMemory(id); }
+    };
+  });
   $("edit-delete").onclick = async (event) => {
     if (!confirm("Delete this memory? If it was shared, it is also removed for other devices.")) return;
     const done = await attempt(() => api(`/api/memories/${id}`, { method: "DELETE" }), event.target);
@@ -1052,6 +1066,8 @@ $("cloud-tabs").addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  const note = event.target.closest(".thumb-note");
+  if (note) { event.stopPropagation(); return window.open(note.previousElementSibling.src + "?shared=1", "_blank"); }
   const open = event.target.closest("[data-open]");
   if (open) { state.guideOpen = false; return openMemory(open.dataset.open); }
   const guided = event.target.closest("[data-guide]");

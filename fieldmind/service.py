@@ -214,6 +214,27 @@ class MemoryService:
             out["photos"] = self.photos.for_memory(memory_id)
         return out
 
+    def revisions(self, memory_id: str) -> list[dict]:
+        """Every version of a memory this device saw, newest first, with who changed it."""
+        if not self.find(memory_id):
+            raise NotFound(memory_id)
+        return [{"rev": r["rev"], "ts": r["ts"], "device_id": r["device_id"], "author": r["author"], "note": r["note"],
+                 **{k: r["snapshot"].get(k) for k in ("text", "kind", "asset", "tags", "scope", "status", "review")}}
+                for r in self.journal.revisions(memory_id)]
+
+    def restore(self, memory_id: str, rev: int) -> dict:
+        """Bring an earlier version's content back as a new revision (nothing is rewritten)."""
+        match = next((r for r in self.journal.revisions(memory_id) if r["rev"] == rev), None)
+        if not match:
+            raise NotFound(memory_id)
+        snapshot = match["snapshot"]
+        with self.lock:
+            result = self._mutate(memory_id, {"text": snapshot.get("text") or "", "kind": snapshot.get("kind") or "observation",
+                                              "asset": snapshot.get("asset"), "tags": sorted(set(snapshot.get("tags") or []))},
+                                  note=f"Restored revision {rev}.")
+            self.local.flush()
+        return result
+
     def history(self, memory_id: str) -> list[dict]:
         """The chain of memories this one replaced, newest first."""
         chain, seen, current = [], set(), self.find(memory_id)
@@ -359,6 +380,7 @@ class MemoryService:
 
         dense, sparse = self.embedder.document(text)
         self.local.upsert(memory_id, dense, sparse, payload)
+        self.journal.record_revision(memory_id, payload, "Written here")
         if decision.scope != PRIVATE:
             self.journal.enqueue(memory_id, "upsert", decision.priority, 0, None)
         self.journal.log(
@@ -448,6 +470,7 @@ class MemoryService:
                         self.journal.cancel(photo["id"])
             self.local.delete([memory_id])
             self.replica.delete([memory_id])
+            self.journal.forget_revisions(memory_id)
             self.local.flush()
         self.journal.log("delete", f"Deleted: {_clip(payload.get('text', ''))}", memory_id=memory_id,
                          queued=in_cloud)
@@ -514,6 +537,7 @@ class MemoryService:
         else:
             dense, sparse = record["dense"], record["sparse"]
         self.local.upsert(memory_id, dense, sparse, payload)
+        self.journal.record_revision(memory_id, payload, note or "Changed here")
         if record["shard"] == "replica":
             self.replica.delete([memory_id])
         if payload["scope"] != before_scope:

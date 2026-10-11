@@ -20,6 +20,7 @@ from qdrant_edge import Distance, EdgeConfig, EdgeOptimizersConfig, EdgeVectorPa
 
 from . import schema
 from .config import Settings
+from .faces import FaceFinder, hide
 from .policy import PRIVATE
 from .store import Shard, build_filter
 from .vault import Vault
@@ -29,7 +30,7 @@ IMAGE = "image"
 MEDIA_INDEXED = ("memory_id", "scope", "sync_state", "status", "site")
 # Fields that travel to the cloud with a photo. The thumbnail itself is added as base64.
 MEDIA_CLOUD_FIELDS = ("schema", "memory_id", "site", "device_id", "origin_device", "created_at", "updated_at",
-                      "width", "height", "status", "rev")
+                      "width", "height", "status", "rev", "faces")
 # CLIP text-to-image cosine: unrelated pairs sit near 0.15, a clear match near 0.32.
 IMAGE_FLOOR, IMAGE_CEILING = 0.15, 0.32
 
@@ -44,10 +45,11 @@ def image_strength(score: float) -> float:
 
 
 class PhotoStore:
-    def __init__(self, settings: Settings, vault: Vault, embedder: ImageEmbedder):
+    def __init__(self, settings: Settings, vault: Vault, embedder: ImageEmbedder, faces: FaceFinder | None = None):
         self.settings = settings
         self.vault = vault
         self.embedder = embedder
+        self.faces = faces
         self.dir = settings.media_dir
         self.dir.mkdir(parents=True, exist_ok=True)
         self.shard = Shard(settings.media_shard_dir, "media", vault, config=media_config(), indexed=MEDIA_INDEXED)
@@ -64,12 +66,19 @@ class PhotoStore:
     def path(self, photo_id: str) -> Path:
         return self.dir / f"{photo_id}.jpg"
 
-    def read(self, photo_id: str) -> bytes | None:
-        path = self.path(photo_id)
+    def shared_path(self, photo_id: str) -> Path:
+        """The copy with faces hidden, present only when the photo shows faces."""
+        return self.dir / f"{photo_id}.shared.jpg"
+
+    def read(self, photo_id: str, shared: bool = False) -> bytes | None:
+        """The photo as this device keeps it, or with ``shared`` the copy the fleet gets."""
+        path = self.shared_path(photo_id) if shared and self.shared_path(photo_id).exists() else self.path(photo_id)
         return self.vault.unseal_bytes(path.read_bytes()) if path.exists() else None
 
-    def _write(self, photo_id: str, data: bytes) -> None:
+    def _write(self, photo_id: str, data: bytes, shared: bytes | None = None) -> None:
         self.path(photo_id).write_bytes(self.vault.seal_bytes(data))
+        if shared is not None:
+            self.shared_path(photo_id).write_bytes(self.vault.seal_bytes(shared))
 
     # -- adding -----------------------------------------------------------
 
@@ -78,7 +87,11 @@ class PhotoStore:
         if not self.embedder.ready(wait=60):
             raise RuntimeError(f"The vision model is not loaded: {self.embedder.error or 'still loading'}")
         thumbnail, width, height = prepare(data)
-        vector = self.embedder.image(thumbnail)
+        # Faces are hidden in the copy that leaves, and the vector the fleet searches
+        # by is computed from that copy, so the embedding cannot identify anyone either.
+        boxes = self.faces.find(thumbnail) if self.faces and self.faces.available else []
+        shared = hide(thumbnail, boxes) if boxes else None
+        vector = self.embedder.image(shared or thumbnail)
         photo_id = str(uuid.uuid4())
         now = time.time()
         private = memory["scope"] == PRIVATE
@@ -87,9 +100,9 @@ class PhotoStore:
             "sync_state": "private" if private else "pending",
             "site": self.settings.site, "device_id": self.settings.device_id, "origin_device": self.settings.device_id,
             "created_at": now, "updated_at": now, "width": width, "height": height, "bytes": len(thumbnail),
-            "status": "active", "rev": 1,
+            "status": "active", "rev": 1, "faces": len(boxes),
         }
-        self._write(photo_id, thumbnail)
+        self._write(photo_id, thumbnail, shared)
         self.shard.upsert_point(photo_id, {IMAGE: vector}, payload)
         self.shard.flush()
         return self._present({"id": photo_id, "payload": payload})
@@ -147,7 +160,7 @@ class PhotoStore:
     def cloud_view(self, photo: dict, caption: str) -> tuple[dict, list[float]] | None:
         """What leaves the device for a photo: the thumbnail, its vector and bookkeeping, plus the shared caption."""
         record = self.shard.get(photo["id"], with_vector=True)
-        data = self.read(photo["id"])
+        data = self.read(photo["id"], shared=True)
         if not record or data is None:
             return None
         payload = {k: record["payload"][k] for k in MEDIA_CLOUD_FIELDS if k in record["payload"]}
@@ -174,6 +187,7 @@ class PhotoStore:
     def remove(self, photo_ids: list[str]) -> None:
         for photo_id in photo_ids:
             self.path(photo_id).unlink(missing_ok=True)
+            self.shared_path(photo_id).unlink(missing_ok=True)
         self.shard.delete(photo_ids)
 
     def remove_for(self, memory_id: str) -> list[dict]:
@@ -188,4 +202,5 @@ class PhotoStore:
             "sync_state": p.get("sync_state"), "width": p.get("width"), "height": p.get("height"),
             "bytes": p.get("bytes"), "device_id": p.get("device_id"), "origin_device": p.get("origin_device"),
             "created_at": p.get("created_at", 0), "url": f"/api/photos/{record['id']}",
+            "faces": int(p.get("faces") or 0),
         }

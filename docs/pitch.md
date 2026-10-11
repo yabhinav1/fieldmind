@@ -27,7 +27,7 @@ The local shard holds everything this device wrote, including private notes. The
 We use Edge's dense and BM25 search in each shard, but fuse in the app. Rank fusion inside one shard cannot see the other shard, so the best hit of a nearly empty shard would tie with the best hit of a full one. Raw cosine and BM25 scores are comparable across shards, so we combine those.
 
 **How do you use snapshots?**
-A device that is 200 or more memories behind, or is asked to rebuild, downloads one shard snapshot from Qdrant Server and unpacks it into the replica shard with `EdgeShard.unpack_snapshot`. It then deletes other sites' data and tombstones, and merges to one segment. Everyday changes use a manifest diff of ids and revisions instead, because that lets a device skip data it does not subscribe to.
+A device that is 200 or more memories behind, or is asked to rebuild, downloads one shard snapshot from Qdrant Server and unpacks it into the replica shard with `EdgeShard.unpack_snapshot`. It then deletes other sites' data and tombstones, and merges to one segment. Everyday changes use a change-log pull instead (memories updated since the last cycle, a few bytes each, with a full site listing every thirtieth cycle), because that lets a device skip data it does not subscribe to.
 
 **Why not partial snapshots?**
 They keep an edge shard identical to the server shard. Our replica is deliberately not identical: it is trimmed to the device's site. A diff is the better fit for that.
@@ -81,5 +81,5 @@ Yes, per device. A trainee device's shared notes travel marked *awaiting approva
 - Name masking will miss some names; the default model is English, and the multilingual model (an env setting) covers Devanagari, Tamil and other scripts. Addresses are caught by pattern (house number, numbered street, numbered sector, landmark, postal code), so an unusual form gets through.
 - Dictation needs an https address (or localhost) for the microphone; the words themselves are transcribed on the device, hands-free, with the language detected automatically. A phrase in Hindi or another non-English language takes a few seconds longer because a larger model re-reads it.
 - Roles are per device, not per person: no individual logins.
-- Pull sync compares a slim index of every memory in the device's site each cycle, which suits tens of thousands of memories, not millions.
-- Photos are not inspected for faces or name plates; the caption decides the scope. Peers exchange notes but not photos.
+- Pull sync asks for changes since the last cycle and lists the whole site every thirtieth cycle, so a deletion or a rebuilt cloud can take up to two minutes to be noticed.
+- Faces are hidden in shared photos; name plates and badges are not. Small or turned-away faces can be missed. Peers exchange notes but not photos.

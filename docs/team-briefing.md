@@ -65,7 +65,7 @@ Outcomes: safety and equipment notes are shared (safety is marked urgent and sen
 
 **Sync and conflicts.** Every memory has a revision number; the device remembers which cloud revision each of its changes was based on. An upload only succeeds if the cloud is still at that revision (a conditional upsert in Qdrant). If another device changed it meanwhile: fields that differ are merged automatically; the same field changed by both is a conflict and is shown to a person: keep mine, accept theirs, keep both, or combine. Deletes use tombstones. A shared note made private again is withdrawn from the cloud and from other devices. If the cloud collection is wiped, devices notice and upload again.
 
-**Snapshot vs diff.** Everyday changes travel as a small diff (ids and revisions, then only the changed points). A device that is far behind (200+ memories, or when "Rebuild cloud replica" is clicked) downloads one Qdrant Server shard snapshot, unpacks it straight into its replica shard, trims it to its own site, and merges it to one segment (each segment preallocates about 215 MB on the device, so this matters).
+**Snapshot vs diff.** Everyday changes travel as a change log: the device asks the cloud for memories updated since its last cycle (a few bytes each), and lists the whole site every thirtieth cycle as a safety net for deletions, clock drift and a rebuilt cloud. A device that is far behind (200+ memories, or when "Rebuild cloud replica" is clicked) downloads one Qdrant Server shard snapshot, unpacks it straight into its replica shard, trims it to its own site, and merges it to one segment (each segment preallocates about 215 MB on the device, so this matters).
 
 **Answers.** Search finds the relevant notes; a 3B language model on the device (llama3.2 via Ollama) phrases a short answer with citations like [1]. Every number in the generated answer is checked against the note it cites; if a number is not there, the answer is thrown away and the device quotes the notes instead. Without the model, answers are always composed from the notes. Either way, zero network calls.
 
@@ -146,7 +146,7 @@ The local shard holds everything this device wrote, including private notes. The
 We do use Edge's dense and BM25 search in each shard, but fuse in the app, because rank fusion inside one shard cannot see the other shard. Raw cosine and BM25 scores are comparable across shards, so we combine those.
 
 **How exactly do you use snapshots?**
-A device that is 200 or more memories behind, or is asked to rebuild, downloads one shard snapshot from Qdrant Server and unpacks it into its replica shard with `EdgeShard.unpack_snapshot`. Then it deletes other sites' data and tombstones and merges to one segment. Everyday changes use a diff instead, because a diff lets a device skip data it does not subscribe to.
+A device that is 200 or more memories behind, or is asked to rebuild, downloads one shard snapshot from Qdrant Server and unpacks it into its replica shard with `EdgeShard.unpack_snapshot`. Then it deletes other sites' data and tombstones and merges to one segment. Everyday changes use a change-log pull instead (memories updated since the last cycle, with a full listing every thirtieth cycle), because that lets a device skip data it does not subscribe to.
 
 **Why not partial snapshots?**
 They keep an edge shard identical to the server shard. Our replica is deliberately not identical: it is trimmed to the device's site. A diff fits that better.
@@ -186,9 +186,9 @@ It runs in a Linux container today, and qdrant-edge-py ships aarch64 wheels, so 
 - The PIN session is a cookie over plain HTTP. Fine on the device itself, weak across a network; the hosted demo has TLS from the host's proxy.
 - The default name model is English; the multilingual one is an env setting. Addresses are caught by pattern, so an unusual form gets through.
 - Roles are per device, not per person: no individual logins.
-- Pull sync lists every id in the device's site each cycle: fine for tens of thousands of memories, not millions.
+- Pull sync asks only for changes since the last cycle and lists the whole site every thirtieth cycle, so a deletion or a rebuilt cloud can take up to two minutes to be noticed.
 - Snapshot restore downloads the whole shard before trimming, so other sites' data touches the disk briefly.
-- Photos are not inspected for faces or name plates. Not tested on a real Raspberry Pi; the live servers are arm64 Linux with Qdrant Cloud.
+- Faces are hidden in shared photos; name plates and badges are not, and small or turned-away faces can be missed. Not tested on a real Raspberry Pi; the live servers are arm64 Linux with Qdrant Cloud.
 
 ---
 

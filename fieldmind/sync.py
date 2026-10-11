@@ -58,6 +58,10 @@ def is_masked(payload: dict) -> bool:
     return bool(payload.get("redacted"))
 
 
+# The change-log pull asks for everything updated since the last cycle minus this
+# many seconds, so devices whose clocks disagree by less than this never miss a change.
+PULL_OVERLAP = 300.0
+
 # What the pull step needs to know about every local memory to compare it with the cloud.
 INDEX_FIELDS = ("rev", "sync_state", "scope", "priority", "text")
 
@@ -79,6 +83,8 @@ class SyncEngine:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._reachable = False
+        self._full_next = False
+        self.pull_mode = "full"
         self._checked_at = 0.0
         self._was_online: bool | None = None
         self._offline_since: float | None = time.time()
@@ -303,6 +309,7 @@ class SyncEngine:
             self._apply_cloud_content(payload, mine)
             record["dense"], record["sparse"] = self.service.embedder.document(payload["text"])
             self.service.local.upsert(memory_id, record["dense"], record["sparse"], payload)
+            self.journal.record_revision(memory_id, payload, f"Merged with edits from {theirs.get('device_id')}")
             stats["merged"] += 1
             self.journal.log("merge", f"Merged edits from {theirs.get('device_id')} automatically: {_clip(mine['text'])}",
                              level="good", memory_id=memory_id, fields=sorted(merged))
@@ -538,9 +545,34 @@ class SyncEngine:
     # -- pull -------------------------------------------------------------
 
     def _pull(self, stats: dict) -> None:
+        journal = self.journal
+        # Most cycles ask only for what changed since the last one, which costs a
+        # few bytes however large the site grows. Every FULL_PULL_EVERY cycles, and
+        # whenever the cloud collection had to be created, the whole site is
+        # listed instead: that catches memories the cloud lost and a device whose
+        # clock is behind, and is the only time memories are declared gone.
+        since = journal.get("pull_since")
+        cycle = int(journal.get("pull_cycle", 0) or 0) + 1
+        journal.set("pull_cycle", cycle)
+        full = (since is None or self.cloud.created or cycle % max(1, self.settings.full_pull_every) == 0
+                or self._full_next)
+        self._full_next = False
+        if full:
+            manifest = self.cloud.manifest(self.settings.site)
+            stats["cloud_points"] = sum(1 for v in manifest.values() if v.get("status") != "deleted")
+        else:
+            manifest = self.cloud.changes(self.settings.site, since - PULL_OVERLAP)
+            stats["cloud_points"] = int(journal.get("cloud_points", 0) or 0)
+        self.pull_mode = "full" if full else "changes"
+        newest = max((e.get("updated_at") or 0 for e in manifest.values()), default=since or 0)
+        self._pull_entries(manifest, full, stats)
+        journal.set("pull_since", max(newest, since or 0))
+        if full:
+            journal.set("cloud_points", stats["cloud_points"])
+        self.cloud.created = False
+
+    def _pull_entries(self, manifest: dict, full: bool, stats: dict) -> None:
         service, journal = self.service, self.journal
-        manifest = self.cloud.manifest(self.settings.site)
-        stats["cloud_points"] = sum(1 for v in manifest.values() if v.get("status") != "deleted")
         # Only the bookkeeping fields are read for the whole-shard comparison; full
         # payloads are fetched for the few memories that actually change.
         local = {r["id"]: r["payload"] for r in service.local.scroll(fields=list(INDEX_FIELDS))}
@@ -581,7 +613,7 @@ class SyncEngine:
 
         behind = sum(1 for i, e in manifest.items()
                      if i not in local and e.get("status") != "deleted" and replica.get(i) != e.get("rev", 0)
-                     and may_see(e, service.role))
+                     and may_see(e, service.role)) if full else 0
         if behind >= self.settings.snapshot_min_points and self.cloud.supports_snapshots:
             self._restore_replica(stats)
             hidden = [r["id"] for r in service.replica.scroll(fields=["review", "priority"])
@@ -593,11 +625,11 @@ class SyncEngine:
 
         # A memory learned from a peer may not have reached the cloud yet; keep it
         # until the cloud has an opinion about it.
-        gone = [i for i in replica if i not in manifest and not replica_index.get(i, {}).get("via_peer")]
+        gone = [i for i in replica if i not in manifest and not replica_index.get(i, {}).get("via_peer")] if full else []
         service.replica.delete(gone)
         stats["removed"] += len(gone)
 
-        for memory_id, entry in local.items():
+        for memory_id, entry in (local.items() if full else ()):
             # The cloud has no trace of something this device already delivered
             # (for example the collection was rebuilt). Send it again.
             if memory_id not in manifest and entry.get("sync_state") == "synced" and not journal.open_op(memory_id):
@@ -645,6 +677,7 @@ class SyncEngine:
                                    sync_state="synced")
                     dense, sparse = service.embedder.document(payload["text"])
                     service.local.upsert(record["id"], dense, sparse, payload)
+                    journal.record_revision(record["id"], payload, f"Changed on {cloud_payload.get('device_id')}")
                 if content_changed:
                     journal.log("sync", f"Updated by {cloud_payload.get('device_id')}: {_clip(payload['text'])}",
                                 memory_id=record["id"])
@@ -655,7 +688,7 @@ class SyncEngine:
             journal.log("sync", f"{skipped_newer} cloud memories were written by a newer FieldMind and are held back "
                                 "until this device is updated.", level="warn")
 
-        if service.photos:
+        if service.photos and (full or wanted):
             known = set(local) | {r["id"] for r in service.replica.scroll(fields=["rev"])}
             self._pull_photos(known, stats)
 
@@ -723,6 +756,7 @@ class SyncEngine:
 
         dense, sparse = service.embedder.document(payload["text"])
         service.local.upsert(memory_id, dense, sparse, payload)
+        self.journal.record_revision(memory_id, payload, f"Conflict settled: {choice}")
         service.local.flush()
         self.journal.resolve_conflict(conflict_id, choice)
         label = {"mine": "kept this device's version", "theirs": f"accepted the version from {theirs.get('device_id')}",
@@ -809,6 +843,9 @@ class SyncEngine:
         stats["snapshot_bytes"] = size
         self.journal.log("sync", f"Restored {kept} memories from a {_bytes(size)} cloud snapshot "
                                  f"in {time.time() - started:.1f}s.", level="good", bytes=size, memories=kept)
+
+    def full_pull_next(self) -> None:
+        self._full_next = True
 
     def rebuild_replica(self) -> dict:
         """Throw away the cloud replica and load it again. Device-authored memory is untouched."""

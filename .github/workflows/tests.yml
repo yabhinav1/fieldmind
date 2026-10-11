@@ -39,7 +39,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models
-          key: models-bge-small-bert-ner-minilm-clip-v4
+          key: models-bge-small-bert-ner-minilm-clip-v5
 
       - name: Test
         run: pytest tests -q

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .cloud import Cloud
 from .config import Settings
 from .embedder import Embedder
+from .faces import FaceFinder
 from .journal import Journal
 from .ner import NameFinder
 from .peers import Fetch, PeerExchange
@@ -64,7 +65,10 @@ def build(settings: Settings, embedder: Embedder | None = None, cloud_client=Non
     local = Shard(settings.local_shard_dir, "local", vault)
     replica = Shard(settings.replica_shard_dir, "replica", vault)
     policy = PolicyEngine(embedder, names, store=journal)
-    photos = PhotoStore(settings, vault, vision or ImageEmbedder(settings.models_dir)) if settings.photos else None
+    photos = None
+    if settings.photos:
+        faces = FaceFinder(settings.models_dir) if settings.faces else None
+        photos = PhotoStore(settings, vault, vision or ImageEmbedder(settings.models_dir), faces=faces)
     service = MemoryService(settings, embedder, local, replica, journal, policy, reranker=reranker, photos=photos)
     cloud = Cloud(settings.cloud_url, settings.cloud_api_key, settings.collection, client=cloud_client)
     peers = PeerExchange(service, fetch=peer_fetch)

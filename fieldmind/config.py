@@ -61,6 +61,10 @@ class Settings:
     # A queued change that keeps failing for its own reasons (not because the link
     # is down) is parked after this many attempts so the rest of the queue drains.
     sync_max_attempts: int = field(default_factory=lambda: int(_env("SYNC_MAX_ATTEMPTS", "5")))
+    # Pull sync asks the cloud only for what changed since the last cycle. Every
+    # this many cycles it lists the whole site instead, which also catches a
+    # device whose clock is wrong and a cloud that was rebuilt.
+    full_pull_every: int = field(default_factory=lambda: int(_env("FULL_PULL_EVERY", "30")))
     # When a device is this many memories behind, it restores the replica from one
     # cloud snapshot instead of fetching memories one by one.
     snapshot_min_points: int = field(default_factory=lambda: int(_env("SNAPSHOT_MIN_POINTS", "200")))
@@ -85,6 +89,9 @@ class Settings:
     # Photos as memories: a CLIP model pair (about 590 MB) makes photos searchable by
     # text, and a third shard holds them. Off by default because of the download.
     photos: bool = field(default_factory=lambda: _env("PHOTOS", "0") not in ("0", "false", "no", ""))
+
+    # Hide faces in photos before a thumbnail leaves the device (a 1.3 MB detector).
+    faces: bool = field(default_factory=lambda: _env("FACES", "1") not in ("0", "false", "no", ""))
 
     # Speech to text on the device (Whisper base, int8, about 140 MB), so dictation
     # works in every browser and offline. 0 turns it off; a Whisper size name

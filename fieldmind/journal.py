@@ -67,6 +67,17 @@ CREATE TABLE IF NOT EXISTS sync_runs (
     cloud_points INTEGER DEFAULT 0,
     error TEXT
 );
+CREATE TABLE IF NOT EXISTS revisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    memory_id TEXT NOT NULL,
+    rev INTEGER NOT NULL,
+    snapshot TEXT NOT NULL,
+    device_id TEXT,
+    author TEXT,
+    note TEXT,
+    ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS revisions_memory ON revisions(memory_id, id DESC);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 """
 
@@ -76,6 +87,7 @@ CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
 KEEP_EVENTS = 20_000
 KEEP_RUNS = 2_000
 KEEP_FINISHED_OPS = 5_000
+KEEP_REVISIONS = 50  # per memory
 PRUNE_EVERY = 256
 
 
@@ -158,6 +170,38 @@ class Journal:
         for row in rows:
             row["message"] = self.vault.unseal(row["message"])
             yield row
+
+    # -- revisions --------------------------------------------------------
+    # What a memory looked like at each revision this device saw, so a person
+    # can see who changed what and bring an earlier version back. Text is
+    # sealed on disk like the activity log.
+
+    REVISION_FIELDS = ("text", "kind", "asset", "tags", "scope", "status", "rev", "device_id", "author", "updated_at",
+                       "review", "reviewed_by")
+
+    def record_revision(self, memory_id: str, payload: dict, note: str = "") -> None:
+        snapshot = {k: payload.get(k) for k in self.REVISION_FIELDS}
+        rev = int(payload.get("rev", 0) or 0)
+        with self._lock:
+            last = self._db.execute("SELECT snapshot, rev FROM revisions WHERE memory_id = ? ORDER BY id DESC LIMIT 1",
+                                    (memory_id,)).fetchone()
+            if last and last["rev"] == rev and json.loads(self.vault.unseal(last["snapshot"])) == snapshot:
+                return
+            self._db.execute("INSERT INTO revisions(memory_id, rev, snapshot, device_id, author, note, ts) VALUES(?, ?, ?, ?, ?, ?, ?)",
+                             (memory_id, rev, self.vault.seal(json.dumps(snapshot)), payload.get("device_id"),
+                              payload.get("author"), note, time.time()))
+            self._db.execute("DELETE FROM revisions WHERE memory_id = ? AND id <= "
+                             "(SELECT id FROM revisions WHERE memory_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                             (memory_id, memory_id, KEEP_REVISIONS))
+
+    def revisions(self, memory_id: str) -> list[dict]:
+        rows = self._all("SELECT * FROM revisions WHERE memory_id = ? ORDER BY id DESC", (memory_id,))
+        for row in rows:
+            row["snapshot"] = json.loads(self.vault.unseal(row["snapshot"]))
+        return rows
+
+    def forget_revisions(self, memory_id: str) -> None:
+        self._run("DELETE FROM revisions WHERE memory_id = ?", (memory_id,))
 
     # -- outbox -----------------------------------------------------------
 

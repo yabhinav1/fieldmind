@@ -57,6 +57,7 @@ class Cloud:
         if self._ready:
             return
         if not self.client.collection_exists(self.collection):
+            self.created = True
             self.client.create_collection(
                 self.collection,
                 vectors_config={DENSE: m.VectorParams(size=DENSE_DIM, distance=m.Distance.COSINE)},
@@ -69,7 +70,11 @@ class Cloud:
             for name in ("site", "status", "device_id", "asset"):
                 self.client.create_payload_index(self.collection, name, m.PayloadSchemaType.KEYWORD)
             self.client.create_payload_index(self.collection, "rev", m.PayloadSchemaType.INTEGER)
+            self.client.create_payload_index(self.collection, "updated_at", m.PayloadSchemaType.FLOAT)
         self._ready = True
+
+    # Set when ensure() had to create the collection: the cloud is new or was wiped.
+    created = False
 
     def forget_connection(self) -> None:
         self._ready = False
@@ -87,6 +92,26 @@ class Cloud:
         records = self.client.retrieve(self.collection, ids, with_payload=True, with_vectors=with_vectors)
         return [self._record(r, with_vectors) for r in records]
 
+    MANIFEST_FIELDS = ["rev", "status", "tombstone", "device_id", "review", "priority", "reviewed_by",
+                       "reviewed_at", "review_reason", "updated_at"]
+
+    def changes(self, site: str | None, since: float) -> dict[str, dict]:
+        """Like ``manifest`` but only memories updated at or after ``since``."""
+        must = [m.FieldCondition(key="updated_at", range=m.Range(gte=since))]
+        should = None
+        if site:
+            should = [m.FieldCondition(key="site", match=m.MatchValue(value=site)),
+                      m.FieldCondition(key="site", match=m.MatchValue(value="global"))]
+        flt = m.Filter(must=must, should=should)
+        out, offset = {}, None
+        while True:
+            records, offset = self.client.scroll(self.collection, scroll_filter=flt, limit=512, offset=offset,
+                                                 with_payload=self.MANIFEST_FIELDS, with_vectors=False)
+            for record in records:
+                out[str(record.id)] = record.payload or {}
+            if offset is None:
+                return out
+
     def manifest(self, site: str | None = None) -> dict[str, dict]:
         """Every memory this device may see, as ``id -> {rev, status, ...}``.
 
@@ -103,8 +128,7 @@ class Cloud:
         while True:
             records, offset = self.client.scroll(
                 self.collection, scroll_filter=flt, limit=512, offset=offset,
-                with_payload=["rev", "status", "tombstone", "device_id", "review", "priority", "reviewed_by",
-                              "reviewed_at", "review_reason"], with_vectors=False)
+                with_payload=self.MANIFEST_FIELDS, with_vectors=False)
             for record in records:
                 out[str(record.id)] = record.payload or {}
             if offset is None:

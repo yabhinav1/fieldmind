@@ -270,7 +270,9 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
                                         + " (on device)") if d.speech and d.speech.available else None,
                        "speech_loading": bool(d.speech and not d.speech.available and d.speech.error is None),
                        "speech_error": (d.speech.error or "").splitlines()[0][:200] if d.speech and d.speech.error else None,
-                       "vision_model": "CLIP ViT-B/32 (ONNX)" if d.service.photos and d.service.photos.available else None},
+                       "vision_model": "CLIP ViT-B/32 (ONNX)" if d.service.photos and d.service.photos.available else None,
+                       "faces": bool(d.service.photos and d.service.photos.faces and d.service.photos.faces.available),
+                       "pull_mode": d.sync.pull_mode},
             "sync": {"last_sync_at": d.journal.get("last_sync_at"), "totals": d.journal.totals(), "interval": settings.sync_interval,
                      "batch": settings.sync_batch},
             "now": time.time(),
@@ -334,9 +336,10 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             raise HTTPException(503, f"Could not transcribe: {str(error).splitlines()[0]}") from None
 
     @app.get("/api/photos/{photo_id}")
-    def photo(photo_id: str):
+    def photo(photo_id: str, shared: bool = False):
+        """The photo as kept here, or with ``shared`` the copy the fleet gets (faces hidden)."""
         photos = dev().service.photos
-        data = photos.read(photo_id) if photos else None
+        data = photos.read(photo_id, shared=shared) if photos else None
         if data is None:
             raise HTTPException(404, "No such photo on this device.")
         return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
@@ -382,6 +385,20 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
                     "queued": dev().journal.open_op(memory_id)}
         except NotFound:
             raise HTTPException(404, "No such memory on this device.") from None
+
+    @app.get("/api/memories/{memory_id}/revisions")
+    def revisions(memory_id: str):
+        try:
+            return {"revisions": dev().service.revisions(memory_id)}
+        except NotFound:
+            raise HTTPException(404, "No such memory on this device.") from None
+
+    @app.post("/api/memories/{memory_id}/revisions/{rev}/restore")
+    def restore_revision(memory_id: str, rev: int):
+        try:
+            return dev().service.restore(memory_id, rev)
+        except NotFound:
+            raise HTTPException(404, "No such revision on this device.") from None
 
     @app.patch("/api/memories/{memory_id}")
     def edit(memory_id: str, body: EditBody):
