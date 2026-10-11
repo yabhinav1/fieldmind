@@ -22,6 +22,7 @@ from . import schema
 from .cloud import Cloud
 from .journal import Journal
 from .policy import PRIVATE, REDACTED
+from .review import APPROVED, PENDING, REJECTED, copy_review, may_see
 from .service import CONTENT_FIELDS, MemoryService, _clip, cloud_view
 
 
@@ -142,6 +143,10 @@ class SyncEngine:
 
     # -- background loop --------------------------------------------------
 
+    def poke(self) -> None:
+        """Ask the background loop to run a cycle now rather than at the next tick."""
+        self._wake.set()
+
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, name="fieldmind-sync", daemon=True)
         self._thread.start()
@@ -216,6 +221,8 @@ class SyncEngine:
                     self._push_photo(op, stats)
                 elif op["op"] == "photo_delete":
                     self._push_photo_delete(op, stats)
+                elif op["op"] == "review":
+                    self._push_review(op, stats)
                 else:
                     self._push_removal(op, stats)
             except Exception as error:
@@ -268,8 +275,12 @@ class SyncEngine:
         elif theirs.get("rev") == op["base_rev"]:
             expect = op["base_rev"]
         elif same_content(mine, theirs):
+            before = payload.get("review")
+            copy_review(payload, theirs)
             self._mark_synced(memory_id, payload, theirs.get("rev", payload["rev"]))
             self.journal.finish(op["seq"])
+            if theirs.get("review") != before:
+                self.service.note_review_outcome(memory_id, payload, before, theirs)
             return
         elif theirs.get("status") == "deleted":
             # Deleted elsewhere while this device kept working on it: the edit wins.
@@ -283,6 +294,9 @@ class SyncEngine:
                 self._hold_conflict(op, payload, mine, theirs, clashes, stats)
                 return
             mine.update(merged)
+            if mine.get("text") == theirs.get("text") and theirs.get("review") in (APPROVED, REJECTED):
+                copy_review(mine, theirs)
+                copy_review(payload, theirs)
             mine["rev"] = max(theirs.get("rev", 0), mine["rev"]) + 1
             mine["updated_at"] = time.time()
             expect = theirs.get("rev")
@@ -368,6 +382,65 @@ class SyncEngine:
         self.journal.log("sync", f"{verb}: {_clip((op['base_payload'] or {}).get('text', ''))}", memory_id=memory_id)
 
     # -- photos -------------------------------------------------------------
+
+    def _push_review(self, op: dict, stats: dict) -> None:
+        """A supervisor's decision, written to the cloud with a compare-and-swap on the
+        revision the supervisor saw. Approval is a payload patch; rejection is a
+        tombstone that carries the reason, so the author's device gets it back."""
+        memory_id = op["memory_id"]
+        data = op["base_payload"] or {}
+        decision, reason = data.get("decision"), data.get("reason", "")
+        seen = data.get("payload") or {}
+        theirs_record = self.cloud.get(memory_id)
+        theirs = theirs_record["payload"] if theirs_record else None
+
+        if theirs is None or theirs.get("status") == "deleted":
+            self.journal.finish(op["seq"], "cancelled", "Gone from the cloud before the decision was sent.")
+            return
+        if theirs.get("review") != PENDING:
+            self.journal.finish(op["seq"], "cancelled", f"Already {theirs.get('review') or 'cleared'} by {theirs.get('reviewed_by')}.")
+            self.journal.log("review", f"Decided elsewhere by {theirs.get('reviewed_by')} first: {_clip(theirs.get('text', ''))}",
+                             memory_id=memory_id)
+            return
+        if theirs.get("rev") != op["base_rev"] and theirs.get("text") != seen.get("text"):
+            # The author changed the note after the supervisor read it; it comes back for review.
+            self.journal.finish(op["seq"], "cancelled", "The note changed after it was read; review it again.")
+            self.journal.log("review", f"Changed by the author since it was read, back in the queue: {_clip(theirs.get('text', ''))}",
+                             level="warn", memory_id=memory_id)
+            return
+
+        now = time.time()
+        rev = theirs.get("rev", 0) + 1
+        stamp = {"reviewed_by": self.settings.device_id, "reviewed_at": now, "rev": rev, "updated_at": now}
+        if decision == APPROVED:
+            mine = {k: v for k, v in theirs.items() if k != "write_id"}
+            mine.update(stamp, review=APPROVED)
+            mine.pop("review_reason", None)
+            stored = self.cloud.patch(memory_id, mine, theirs.get("rev", 0))
+        else:
+            mine = {
+                "status": "deleted", "tombstone": "reject", "text": "", "site": theirs.get("site"),
+                "asset": theirs.get("asset"), "device_id": self.settings.device_id,
+                "origin_device": theirs.get("origin_device"), "priority": theirs.get("priority", 1),
+                "review": REJECTED, "review_reason": reason, **stamp,
+            }
+            stored = self.cloud.tombstone(memory_id, mine, theirs.get("rev", 0))
+        if not stored:
+            self.journal.defer(op["seq"], "The cloud copy changed during the decision; retrying.")
+            return
+        stats["pushed"] += 1
+        stats["bytes_up"] += _size(mine, None, dense=False)
+        self.journal.finish(op["seq"])
+        with self.service.lock:
+            if decision == APPROVED:
+                record = self.service.replica.get(memory_id)
+                if record:
+                    record["payload"].update(mine, sync_state="replica", base_rev=rev)
+                    self.service.replica.set_payload(memory_id, record["payload"])
+            else:
+                self.service.replica.delete([memory_id])
+        verb = "Sent approval" if decision == APPROVED else "Sent rejection"
+        self.journal.log("sync", f"{verb} to the cloud: {_clip(seen.get('text', ''))}", memory_id=memory_id)
 
     def _push_photo(self, op: dict, stats: dict) -> None:
         photos = self.service.photos
@@ -482,7 +555,10 @@ class SyncEngine:
                 mine = local[memory_id]
                 if journal.open_op(memory_id) or mine.get("scope") == PRIVATE:
                     continue
-                if deleted:
+                if deleted and entry.get("review") == REJECTED:
+                    # Turned down by a supervisor: it comes back to its author as a private note.
+                    self._take_back(memory_id, entry, rev)
+                elif deleted:
                     service.local.delete([memory_id])
                     if service.photos:
                         stats["removed"] += len(service.photos.remove_for(memory_id))
@@ -491,7 +567,8 @@ class SyncEngine:
                                 memory_id=memory_id)
                 elif rev > mine.get("rev", 0):
                     wanted[memory_id] = "local"
-            elif deleted:
+            elif deleted or not may_see(entry, service.role):
+                # Gone, or still awaiting a supervisor's approval and this device is not one.
                 if memory_id in replica:
                     service.replica.delete([memory_id])
                     if service.photos:
@@ -503,9 +580,13 @@ class SyncEngine:
                 wanted[memory_id] = "replica"
 
         behind = sum(1 for i, e in manifest.items()
-                     if i not in local and e.get("status") != "deleted" and replica.get(i) != e.get("rev", 0))
+                     if i not in local and e.get("status") != "deleted" and replica.get(i) != e.get("rev", 0)
+                     and may_see(e, service.role))
         if behind >= self.settings.snapshot_min_points and self.cloud.supports_snapshots:
             self._restore_replica(stats)
+            hidden = [r["id"] for r in service.replica.scroll(fields=["review", "priority"])
+                      if not may_see(r["payload"], service.role)]
+            service.replica.delete(hidden)
             replica = {r["id"]: r["payload"].get("rev", 0) for r in service.replica.scroll()}
             wanted = {i: target for i, target in wanted.items()
                       if target == "local" or replica.get(i) != manifest[i].get("rev", 0)}
@@ -555,14 +636,20 @@ class SyncEngine:
                     if not current or journal.open_op(record["id"]):
                         continue
                     payload = current["payload"]
+                    before_review = payload.get("review")
+                    content_changed = not same_content(cloud_view(payload), cloud_payload)
                     self._apply_cloud_content(payload, cloud_payload)
+                    copy_review(payload, cloud_payload)
                     payload.update(rev=cloud_payload.get("rev", 0), base_rev=cloud_payload.get("rev", 0),
                                    updated_at=cloud_payload.get("updated_at"), device_id=cloud_payload.get("device_id"),
                                    sync_state="synced")
                     dense, sparse = service.embedder.document(payload["text"])
                     service.local.upsert(record["id"], dense, sparse, payload)
-                journal.log("sync", f"Updated by {cloud_payload.get('device_id')}: {_clip(payload['text'])}",
-                            memory_id=record["id"])
+                if content_changed:
+                    journal.log("sync", f"Updated by {cloud_payload.get('device_id')}: {_clip(payload['text'])}",
+                                memory_id=record["id"])
+                if cloud_payload.get("review") != before_review:
+                    service.note_review_outcome(record["id"], payload, before_review, cloud_payload)
         if skipped_newer and not journal.get("warned_newer_schema"):
             journal.set("warned_newer_schema", True)
             journal.log("sync", f"{skipped_newer} cloud memories were written by a newer FieldMind and are held back "
@@ -571,6 +658,24 @@ class SyncEngine:
         if service.photos:
             known = set(local) | {r["id"] for r in service.replica.scroll(fields=["rev"])}
             self._pull_photos(known, stats)
+
+    def _take_back(self, memory_id: str, entry: dict, rev: int) -> None:
+        service = self.service
+        with service.lock:
+            record = service.local.get(memory_id)
+            if not record:
+                return
+            payload = record["payload"]
+            before = payload.get("review")
+            payload.update(scope=PRIVATE, sync_state="private", withdrawn=True, base_rev=rev,
+                           rev=max(rev, payload.get("rev", 0)), review=REJECTED,
+                           reviewed_by=entry.get("reviewed_by"), reviewed_at=entry.get("reviewed_at"),
+                           review_reason=entry.get("review_reason"))
+            service.local.set_payload(memory_id, payload)
+            service.journal.cancel(memory_id)
+            service.journal.close_conflicts_for(memory_id, "rejected")
+            service._rescope_photos(memory_id, PRIVATE)
+        service.note_review_outcome(memory_id, payload, before, entry)
 
     # -- conflicts --------------------------------------------------------
 
@@ -601,6 +706,7 @@ class SyncEngine:
 
         if choice_applied == "theirs":
             self._apply_cloud_content(payload, theirs)
+            copy_review(payload, theirs)
             payload.update(rev=theirs.get("rev", 0), base_rev=theirs.get("rev", 0), sync_state="synced",
                            updated_at=theirs.get("updated_at"), device_id=theirs.get("device_id"))
             self.journal.cancel(memory_id)

@@ -214,6 +214,9 @@ function badges(m, options = {}) {
     if (SYNC[m.sync_state] && m.sync_state !== "synced") out.push(`<span class="badge ${esc(m.sync_state)}">${SYNC[m.sync_state]}</span>`);
     if (m.origin_device && m.mine === false) out.push(`<span class="badge">First written on ${esc(m.origin_device)}</span>`);
   }
+  if (m.review === "pending" && m.scope !== "private") out.push(`<span class="badge review-pending">Awaiting approval</span>`);
+  else if (m.review === "approved" && m.role === "trainee") out.push(`<span class="badge review-approved">Approved${m.reviewed_by && m.reviewed_by !== "trusted" ? ` by ${esc(m.reviewed_by)}` : ""}</span>`);
+  else if (m.review === "rejected") out.push(`<span class="badge review-rejected">Rejected${m.review_reason ? `: ${esc(m.review_reason)}` : ""}</span>`);
   if (m.category && CATEGORY[m.category] && m.kind !== "reference") out.push(`<span class="badge">${CATEGORY[m.category]}</span>`);
   if (m.kind === "reference") out.push(`<span class="badge">Manual</span>`);
   if (m.priority === 2 && m.scope !== "private") out.push(`<span class="badge urgent">Urgent</span>`);
@@ -291,7 +294,13 @@ function renderStatus(s) {
   $("sync-now").disabled = !link.online;
 
   const waiting = outbox.pending || 0;
-  const attention = waiting + s.open_conflicts;
+  const attention = waiting + s.open_conflicts + (s.open_approvals || 0);
+  $("queue-approvals").hidden = s.review.role !== "supervisor";
+  const roleLine = s.review.role === "supervisor"
+    ? `Supervisor${s.open_approvals ? ` · <span class="warn">${s.open_approvals} to approve</span>` : ""}`
+    : s.review.role === "trainee"
+      ? (s.review.trusted ? `Trainee · <span class="ok">trusted</span>` : `Trainee · ${s.review.streak}/${s.review.trust_after} approvals to trusted`)
+      : "Technician";
   $("tab-sync-count").textContent = attention ? String(attention) : "";
 
   const disk = s.shards.local.disk_bytes + s.shards.replica.disk_bytes;
@@ -300,6 +309,7 @@ function renderStatus(s) {
     ["clock", "Last sync", s.sync.last_sync_at ? esc(ago(s.sync.last_sync_at)) : "never"],
     ["list", "Pending items", waiting ? `<span class="warn">${waiting}</span>` : "0"],
     ["merge", "Need a decision", s.open_conflicts ? `<span class="warn">${s.open_conflicts}</span>` : "0"],
+    ["users", "Role", roleLine],
     ["layers", "Memories", `${memory.local + memory.replica} <span class="hint">· ${memory.private} private</span>`],
     ["disk", "Storage reserved", `${esc(bytes(disk))} <span class="hint">· set aside up front</span>`],
   ];
@@ -626,6 +636,7 @@ async function openMemory(id) {
     <dl class="kv">
       <dt>First written on</dt><dd>${esc(m.origin_device)}</dd>
       <dt>Last changed by</dt><dd>${esc(m.device_id)} · ${ago(m.updated_at)}</dd>
+      ${m.review ? `<dt>Review</dt><dd>${m.review === "pending" ? "Awaiting a supervisor's approval; only supervisors see it until then" : m.review === "approved" ? `Approved${m.reviewed_by === "trusted" ? " automatically (trusted device)" : m.reviewed_by ? ` by ${esc(m.reviewed_by)}` : ""}${m.reviewed_at ? ` · ${ago(m.reviewed_at)}` : ""}` : `Rejected${m.reviewed_by ? ` by ${esc(m.reviewed_by)}` : ""}${m.review_reason ? `: ${esc(m.review_reason)}` : ""}. Edit and share again to resubmit.`}</dd>` : ""}
       <dt>Revision</dt><dd>${m.rev} (cloud agreed on ${m.base_rev})</dd>
       <dt>Stored in</dt><dd>${m.source === "replica" ? "Cloud replica shard" : "Local shard"}</dd>
     </dl>
@@ -806,18 +817,21 @@ function showQueue(tab) {
   $("outbox").hidden = tab !== "pending";
   $("runs").hidden = tab !== "synced";
   $("conflicts").hidden = tab !== "conflicts";
+  $("approvals").hidden = tab !== "approvals";
 }
 
 async function loadSync() {
   const data = await api("/api/sync").catch(() => null);
   if (!data) return;
-  const OPS = { upsert: "Send", delete: "Delete", retract: "Withdraw", photo: "Send photo", photo_delete: "Remove photo" };
+  const OPS = { upsert: "Send", delete: "Delete", retract: "Withdraw", photo: "Send photo", photo_delete: "Remove photo", review: "Send decision" };
   const link = data.link;
   const pending = data.outbox.filter((o) => o.state === "pending");
   const failed = data.outbox.filter((o) => o.state === "failed");
   const conflicts = data.conflicts.length;
+  const approvals = (data.approvals || []).length;
 
   let cls = "", iconName = "cloud-check", title = "All caught up", text = "Your notes are synced with the cloud.";
+  if (approvals) { cls = "offline"; iconName = "users"; title = `${approvals} waiting for your approval`; text = "Notes from trainees stay with you until you decide. Approve or reject below; either works offline."; }
   if (!link.online) { cls = "offline"; iconName = "cloud-off"; title = "Working offline"; text = `${pending.length} change${pending.length === 1 ? "" : "s"} waiting. Everything syncs when the link returns.`; }
   else if (conflicts) { cls = "attention"; iconName = "merge"; title = `${conflicts} need${conflicts === 1 ? "s" : ""} a decision`; text = "Two devices changed the same note. Nothing was overwritten; choose below."; }
   else if (failed.length) { cls = "attention"; iconName = "sync"; title = `${failed.length} set aside`; text = "A change kept failing while the cloud was up. Retry it from the queue."; }
@@ -830,6 +844,7 @@ async function loadSync() {
 
   $("q-pending").textContent = `(${pending.length + failed.length})`;
   $("q-conflicts").textContent = `(${conflicts})`;
+  $("q-approvals").textContent = `(${approvals})`;
 
   const queueItem = (o, i) => `
       <div class="queue-item ${o.state === "failed" ? "failed" : ""}">
@@ -887,6 +902,24 @@ async function loadSync() {
       </div>
     </div>`;
   }).join("") : emptyState("check", "No conflicts", "When two devices change the same note differently, both versions show up here.");
+
+  $("approvals").innerHTML = approvals ? data.approvals.map((m) => `
+    <div class="review-card" data-review-id="${esc(m.id)}">
+      <div class="badges">${m.priority === 2 ? `<span class="badge urgent">Urgent, already shared</span>` : `<span class="badge review-pending">Awaiting approval</span>`}
+        ${m.asset ? `<span class="badge asset">${esc(m.asset)}</span>` : ""}${m.redacted ? `<span class="badge redacted">Masked</span>` : ""}
+        ${m.category && CATEGORY[m.category] ? `<span class="badge">${CATEGORY[m.category]}</span>` : ""}
+        <span class="when">${esc(m.author || "")} on ${esc(m.origin_device || m.device_id || "")} · ${ago(m.created_at)}</span></div>
+      <div class="text">${esc(m.text)}</div>
+      <div class="row wrap">
+        <button class="btn small primary" data-review="approved">Approve</button>
+        <button class="btn small" data-review-ask>Reject…</button>
+      </div>
+      <div class="reject" hidden>
+        <div class="field"><label>Why, in a line; the author sees this</label><input type="text" maxlength="160" placeholder="e.g. Wrong asset tag, check the nameplate"></div>
+        <div class="row"><button class="btn small danger" data-review="rejected">Reject and send back</button></div>
+      </div>
+    </div>`).join("")
+    : emptyState("check", "Nothing to approve", "Shared notes from trainee devices on this site wait here until you decide.");
 
   $("runs").innerHTML = data.runs.length ? `<table>
     <thead><tr><th>When</th><th>Started by</th><th>Result</th><th class="num">Sent</th><th class="num">Received</th>
@@ -1029,6 +1062,21 @@ document.addEventListener("click", (event) => {
   const combine = event.target.closest("[data-combine]");
   if (combine) {
     combine.closest(".conflict-card").querySelector(".combine").hidden = false;
+    return;
+  }
+  const ask = event.target.closest("[data-review-ask]");
+  if (ask) {
+    const box = ask.closest(".review-card").querySelector(".reject");
+    box.hidden = false;
+    box.querySelector("input").focus();
+    return;
+  }
+  const review = event.target.closest("[data-review]");
+  if (review) {
+    const card = review.closest(".review-card");
+    const body = { decision: review.dataset.review, reason: card.querySelector(".reject input").value };
+    attempt(() => api(`/api/approvals/${card.dataset.reviewId}`, { method: "POST", body }), review)
+      .then((done) => { if (done) { toast(done.status === "approved" ? "Approved. Sending to the fleet." : "Sent back to the author."); poll(); loadSync(); refresh(); } });
     return;
   }
   const resolve = event.target.closest("[data-resolve]");

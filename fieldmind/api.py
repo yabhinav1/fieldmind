@@ -20,6 +20,7 @@ from .config import Settings
 from .demo import DEFAULT_NOTES, DEVICE_NOTES, seed_cloud
 from .peers import HEADER as PEER_HEADER
 from .runtime import Device, build
+from .review import TRUST_AFTER
 from .service import NotFound
 
 WEB = Path(__file__).parent / "web"
@@ -82,6 +83,11 @@ class ChangePinBody(BaseModel):
 class ResolveBody(BaseModel):
     choice: str
     text: str | None = None
+
+
+class ReviewBody(BaseModel):
+    decision: str
+    reason: str = ""
 
 
 class PassphraseBody(BaseModel):
@@ -241,11 +247,14 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
         local, replica = d.service.local.info(), d.service.replica.info()
         return {
             "device": {"id": settings.device_id, "site": settings.site, "author": settings.author,
-                       "version": __version__},
+                       "role": d.service.role, "version": __version__},
+            "review": {"role": d.service.role, "trusted": d.service.trusted, "streak": d.service.approval_streak,
+                       "trust_after": TRUST_AFTER, "needs_review": d.service.needs_review()},
             "link": d.sync.link(),
             "memory": d.service.stats(),
             "outbox": d.journal.counts(),
             "open_conflicts": len(d.journal.conflicts("open")),
+            "open_approvals": len(d.service.approvals()),
             "shards": {"local": local, "replica": replica},
             "engine": {"vector_store": "Qdrant Edge (in-process)", "dense_model": d.embedder.model_name,
                        "sparse_model": "BM25 (Qdrant Edge)", "dimensions": d.embedder.dim,
@@ -411,7 +420,27 @@ def create_app(settings: Settings | None = None, device: Device | None = None) -
             text = record["payload"].get("text") if record else (op["base_payload"] or {}).get("text", "")
             outbox.append({**op, "text": text, "base_payload": None})
         return {"link": d.sync.link(), "outbox": outbox, "counts": d.journal.counts(),
-                "conflicts": d.journal.conflicts("open"), "runs": d.journal.runs(12), "totals": d.journal.totals()}
+                "conflicts": d.journal.conflicts("open"), "approvals": d.service.approvals(),
+                "runs": d.journal.runs(12), "totals": d.journal.totals()}
+
+    @app.get("/api/approvals")
+    def approvals():
+        d = dev()
+        return {"role": d.service.role, "items": d.service.approvals()}
+
+    @app.post("/api/approvals/{memory_id}")
+    def review(memory_id: str, body: ReviewBody):
+        d = dev()
+        try:
+            result = d.service.review(memory_id, body.decision, body.reason)
+        except PermissionError as error:
+            raise HTTPException(403, str(error)) from None
+        except NotFound:
+            raise HTTPException(404, "Nothing with that id is waiting for a decision.") from None
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from None
+        d.sync.poke()
+        return result
 
     @app.post("/api/sync/run")
     def sync_run():

@@ -346,6 +346,13 @@ details.options { margin-top: 10px; }
 .order { font-family: var(--mono); color: var(--accent-text); background: var(--accent); font-size: 12px; font-weight: 700; text-align: center; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; }
 .queue-item.failed { border-color: color-mix(in srgb, var(--bad) 50%, transparent); background: var(--bad-bg); margin-top: 8px; }
 .queue-item.failed .order { background: var(--bad); color: #fff; }
+.review-card { border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--radius); padding: 16px; background: linear-gradient(135deg, var(--warn-bg), var(--surface) 65%); display: grid; gap: 10px; }
+.review-card .text { font-size: 15px; line-height: 1.5; }
+.review-card .reject { display: grid; gap: 8px; }
+.review-card .reject[hidden] { display: none; }
+.badge.review-pending { background: var(--warn-bg); color: var(--warn); }
+.badge.review-approved { background: var(--good-bg); color: var(--good); }
+.badge.review-rejected { background: var(--bad-bg); color: var(--bad); }
 .conflict-card { border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); border-radius: var(--radius); padding: 16px; background: linear-gradient(135deg, var(--bad-bg), var(--surface) 65%); }
 .versions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
 .version { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; background: var(--surface); line-height: 1.55; }

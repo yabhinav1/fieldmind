@@ -61,6 +61,8 @@ Key design points you may be asked about:
 
 Outcomes: safety and equipment notes are shared (safety is marked urgent and sent first), personal/health/HR notes stay private, credentials always stay private even if the user asks to share. A useful note that also contains a name becomes "shared with masking". The vector uploaded for a masked note is computed from the masked text, so the embedding cannot leak the name.
 
+**Roles and approvals.** Every device has a role: trainee, technician (default) or supervisor. A trainee's shared notes go to the cloud marked "awaiting approval" and only supervisor devices pull them until one approves; technicians and supervisors share without asking. Approve and reject work offline (queued like any change) and reach the cloud as compare-and-swap patches; a rejection is a tombstone carrying the reason, so the note comes back to its author as private with the reason. Safety hazards never wait. Ten approvals in a row make a trainee device trusted; one rejection resets it.
+
 **Sync and conflicts.** Every memory has a revision number; the device remembers which cloud revision each of its changes was based on. An upload only succeeds if the cloud is still at that revision (a conditional upsert in Qdrant). If another device changed it meanwhile: fields that differ are merged automatically; the same field changed by both is a conflict and is shown to a person: keep mine, accept theirs, keep both, or combine. Deletes use tombstones. A shared note made private again is withdrawn from the cloud and from other devices. If the cloud collection is wiped, devices notice and upload again.
 
 **Snapshot vs diff.** Everyday changes travel as a small diff (ids and revisions, then only the changed points). A device that is far behind (200+ memories, or when "Rebuild cloud replica" is clicked) downloads one Qdrant Server shard snapshot, unpacks it straight into its replica shard, trims it to its own site, and merges it to one segment (each segment preallocates about 215 MB on the device, so this matters).
@@ -155,6 +157,9 @@ Every memory has a revision. An upload is a conditional upsert that only applies
 **How is "what may leave the device" decided?**
 Three signals, all local: pattern detectors for credentials and contact details, a BERT model for people's names, and a classifier that compares the note with example sentences using the search embedding model. Credentials can never be shared, even if the user asks.
 
+**Is there a permission or approval system?**
+Yes, by device role. Trainee notes wait for a supervisor (except safety hazards); equals share automatically. Decisions work offline, merge safely with later edits, and a rejection carries the reason back. Trust is earned after ten approvals in a row. Roles are per device, not per person: that is the honest limit.
+
 **Could the embedding leak a masked name?**
 No. For a masked note, the vectors we upload are computed from the masked text.
 
@@ -177,12 +182,13 @@ It runs in a Linux container today, and qdrant-edge-py ships aarch64 wheels, so 
 
 ## 8. What is NOT done (say it if asked; never claim otherwise)
 
-- Notes are not encrypted on disk. The PIN protects the dashboard and API, not the files.
-- The PIN session is a cookie over plain HTTP. Fine on the device itself, weak across a network.
-- The name model is English and cased. It will miss some names and does not detect addresses.
+- Sealing on disk protects against copied files, not against someone who can read the key file too; full-disk encryption covers that.
+- The PIN session is a cookie over plain HTTP. Fine on the device itself, weak across a network; the hosted demo has TLS from the host's proxy.
+- The default name model is English; the multilingual one is an env setting. Addresses are caught by pattern, so an unusual form gets through.
+- Roles are per device, not per person: no individual logins.
 - Pull sync lists every id in the device's site each cycle: fine for tens of thousands of memories, not millions.
 - Snapshot restore downloads the whole shard before trimming, so other sites' data touches the disk briefly.
-- Not tested on a real Raspberry Pi or against a real Qdrant Cloud cluster (the API-key path was tested against a local server that requires a key).
+- Photos are not inspected for faces or name plates. Not tested on a real Raspberry Pi; the live servers are arm64 Linux with Qdrant Cloud.
 
 ---
 

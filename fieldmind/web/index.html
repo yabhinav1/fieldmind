@@ -212,10 +212,12 @@
                 <button type="button" data-queue="pending" class="active">Pending <span id="q-pending">(0)</span></button>
                 <button type="button" data-queue="synced">Synced</button>
                 <button type="button" data-queue="conflicts">Conflicts <span id="q-conflicts">(0)</span></button>
+                <button type="button" data-queue="approvals" id="queue-approvals" hidden>Approvals <span id="q-approvals">(0)</span></button>
               </div>
               <div id="outbox" class="list queue-pane"></div>
               <div id="runs" class="queue-pane" hidden></div>
               <div id="conflicts" class="list queue-pane" hidden></div>
+              <div id="approvals" class="list queue-pane" hidden></div>
             </div>
           </div>
           <div class="card">

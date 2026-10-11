@@ -39,6 +39,10 @@ class Settings:
     device_id: str = field(default_factory=lambda: _env("DEVICE", "edge-a"))
     site: str = field(default_factory=lambda: _env("SITE", "plant-1"))
     author: str = field(default_factory=lambda: _env("AUTHOR", "technician"))
+    # Who may share without asking: a "trainee" device's shared notes wait for a
+    # supervisor's approval; "technician" (default) and "supervisor" notes go out at
+    # once; supervisors approve. Safety hazards never wait.
+    role: str = field(default_factory=lambda: _env("ROLE", "technician"))
     host: str = field(default_factory=lambda: _env("HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: int(_env("PORT", "8001")))
 

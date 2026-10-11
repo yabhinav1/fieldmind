@@ -19,6 +19,7 @@ from .llm import LocalModel
 from .photos import PhotoStore, image_strength
 from .policy import PRIVATE, REDACTED, SHARED, PolicyEngine, find_asset
 from .reranker import Reranker
+from .review import APPROVED, PENDING, REJECTED, REVIEW_FIELDS, ROLES, TRUST_AFTER
 from .store import Shard, build_filter
 
 # Cosine similarity bands for two notes about the same asset, measured on this
@@ -56,7 +57,7 @@ CLOUD_FIELDS = (
     "text", "kind", "asset", "tags", "site", "scope", "category", "priority",
     "device_id", "origin_device", "author", "created_at", "updated_at", "rev",
     "status", "supersedes", "superseded_by", "relation", "redacted", "schema",
-)
+) + REVIEW_FIELDS
 # Fields a person can change, and therefore the ones that can conflict.
 CONTENT_FIELDS = ("text", "kind", "asset", "tags", "status", "supersedes", "superseded_by", "relation")
 
@@ -105,6 +106,99 @@ class MemoryService:
         self.answer_ms: deque[float] = deque(maxlen=200)
         self.searches = 0
         self.answers = 0
+
+    # -- roles and review -------------------------------------------------
+
+    @property
+    def role(self) -> str:
+        return self.settings.role if self.settings.role in ROLES else "technician"
+
+    @property
+    def trusted(self) -> bool:
+        return bool(self.journal.get("trusted"))
+
+    @property
+    def approval_streak(self) -> int:
+        return int(self.journal.get("approval_streak", 0) or 0)
+
+    def needs_review(self) -> bool:
+        return self.role == "trainee" and not self.trusted
+
+    def _stamp_review(self, payload: dict) -> None:
+        """Mark a shared memory for review, or as cleared, according to this device's role."""
+        payload["role"] = self.role
+        for field in ("reviewed_by", "reviewed_at", "review_reason"):
+            payload.pop(field, None)
+        if payload.get("scope") == PRIVATE:
+            payload.pop("review", None)
+        elif self.needs_review():
+            payload["review"] = PENDING
+        elif self.role == "trainee":
+            payload.update(review=APPROVED, reviewed_by="trusted", reviewed_at=time.time())
+        else:
+            payload.pop("review", None)
+
+    def approvals(self) -> list[dict]:
+        """Memories from this site waiting for this supervisor's decision."""
+        if self.role != "supervisor":
+            return []
+        out = []
+        for record in self.replica.scroll(build_filter({"review": PENDING})):
+            if self.journal.open_op(record["id"]):
+                continue  # decided here already, waiting to be sent
+            out.append(self._present(record))
+        out.sort(key=lambda m: (-m["priority"], m["created_at"]))
+        return out
+
+    def review(self, memory_id: str, decision: str, reason: str = "") -> dict:
+        """A supervisor's decision on a memory awaiting review. Works offline: the
+        decision is applied to this device's copy now and sent to the cloud later."""
+        if self.role != "supervisor":
+            raise PermissionError("Only a supervisor's device can approve or reject notes.")
+        if decision not in (APPROVED, REJECTED):
+            raise ValueError(f"Unknown decision: {decision}")
+        reason = (reason or "").strip()
+        if decision == REJECTED and not reason:
+            raise ValueError("Say why the note is rejected; the author will see the reason.")
+        with self.lock:
+            record = self.replica.get(memory_id)
+            if not record or record["payload"].get("review") != PENDING:
+                raise NotFound(memory_id)
+            payload = record["payload"]
+            cloud_copy = {k: v for k, v in payload.items() if k not in ("sync_state", "base_rev", "via_peer")}
+            self.journal.enqueue(memory_id, "review", payload.get("priority", 1), payload.get("rev", 0),
+                                 {"decision": decision, "reason": reason, "payload": cloud_copy})
+            if decision == APPROVED:
+                payload.update(review=APPROVED, reviewed_by=self.settings.device_id, reviewed_at=time.time())
+                self.replica.set_payload(memory_id, payload)
+            else:
+                self.replica.delete([memory_id])
+            self.replica.flush()
+        verb = "Approved" if decision == APPROVED else f"Rejected ({reason})"
+        self.journal.log("review", f"{verb}: {_clip(payload.get('text', ''))}", level="good" if decision == APPROVED else "warn",
+                         memory_id=memory_id, decision=decision, author_device=payload.get("origin_device"))
+        return {"status": decision, "memory_id": memory_id, "queued": True}
+
+    def note_review_outcome(self, memory_id: str, payload: dict, before: str | None, cloud_payload: dict) -> None:
+        """This device's memory was approved or rejected elsewhere: keep score and tell the person."""
+        outcome = cloud_payload.get("review")
+        who = cloud_payload.get("reviewed_by") or "a supervisor"
+        if outcome == APPROVED and before == PENDING:
+            streak = self.approval_streak + 1
+            self.journal.set("approval_streak", streak)
+            self.journal.log("review", f"Approved by {who}: {_clip(payload.get('text', ''))}", level="good",
+                             memory_id=memory_id, streak=streak)
+            if streak >= TRUST_AFTER and not self.trusted and self.role == "trainee":
+                self.journal.set("trusted", True)
+                self.journal.log("review", f"{streak} approvals in a row: this device is now trusted and its notes "
+                                           "no longer wait for approval.", level="good")
+        elif outcome == REJECTED:
+            self.journal.set("approval_streak", 0)
+            if self.trusted:
+                self.journal.set("trusted", False)
+            reason = cloud_payload.get("review_reason") or ""
+            self.journal.log("review", f"Rejected by {who}{f' ({reason})' if reason else ''}, kept here as private: "
+                                       f"{_clip(payload.get('text', ''))}", level="warn", memory_id=memory_id, reason=reason)
 
     # -- lookup -----------------------------------------------------------
 
@@ -156,6 +250,8 @@ class MemoryService:
             "pending": count(self.local, sync_state="pending"),
             "synced": count(self.local, sync_state="synced"),
             "conflict": count(self.local, sync_state="conflict"),
+            "awaiting_review": count(self.local, review=PENDING),
+            "approvals": len(self.approvals()),
             "failed": count(self.local, sync_state="failed"),
             "superseded": count(self.local, status="superseded") + count(self.replica, status="superseded"),
             "photos": self.photos.shard.count() if self.photos else 0,
@@ -252,6 +348,7 @@ class MemoryService:
         }
         if decision.shared_text:
             payload["shared_text"] = decision.shared_text
+        self._stamp_review(payload)
 
         # A follow-up replaces what the device believed before, as long as doing so
         # would not reveal a private note to the fleet.
@@ -396,6 +493,9 @@ class MemoryService:
         payload["updated_at"] = time.time()
         payload["device_id"] = self.settings.device_id
         payload.setdefault("origin_device", self.settings.device_id)
+        if text_changed or payload["scope"] != before_scope or payload.get("review") == REJECTED:
+            # What the supervisor saw is no longer what is being shared.
+            self._stamp_review(payload)
 
         now_private = payload["scope"] == PRIVATE
         if now_private and base_rev > 0 and not payload.get("withdrawn"):
@@ -665,6 +765,11 @@ class MemoryService:
             "relation": payload.get("relation"),
             "sync_state": "replica" if shard == "replica" else payload.get("sync_state", "private"),
             "via_peer": payload.get("via_peer"),
+            "review": payload.get("review"),
+            "reviewed_by": payload.get("reviewed_by"),
+            "reviewed_at": payload.get("reviewed_at"),
+            "review_reason": payload.get("review_reason"),
+            "role": payload.get("role"),
             "source": shard,
             "mine": payload.get("origin_device") == self.settings.device_id,
         }

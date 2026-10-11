@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 
 from .policy import PRIVATE, REDACTED
+from .review import may_see
 from .service import MemoryService, _clip, cloud_view
 
 HEADER = "x-fieldmind-peer"
@@ -53,14 +54,17 @@ class PeerExchange:
 
     def manifest(self) -> dict:
         items: dict[str, dict] = {}
-        for record in self.service.local.scroll(fields=["rev", "scope", "status", "withdrawn", "sync_state"]):
+        fields = ["rev", "scope", "status", "withdrawn", "sync_state", "review", "priority"]
+        for record in self.service.local.scroll(fields=fields):
             p = record["payload"]
             if p.get("scope") == PRIVATE or p.get("withdrawn") or p.get("sync_state") == "private":
                 continue
-            items[record["id"]] = {"rev": p.get("rev", 0), "status": p.get("status", "active"), "from": "local"}
-        for record in self.service.replica.scroll(fields=["rev", "status"]):
+            items[record["id"]] = {"rev": p.get("rev", 0), "status": p.get("status", "active"), "from": "local",
+                                   "review": p.get("review"), "priority": p.get("priority", 1)}
+        for record in self.service.replica.scroll(fields=["rev", "status", "review", "priority"]):
             p = record["payload"]
-            items.setdefault(record["id"], {"rev": p.get("rev", 0), "status": p.get("status", "active"), "from": "replica"})
+            items.setdefault(record["id"], {"rev": p.get("rev", 0), "status": p.get("status", "active"), "from": "replica",
+                                            "review": p.get("review"), "priority": p.get("priority", 1)})
         return {"device": self.settings.device_id, "site": self.settings.site, "items": items}
 
     def records(self, ids: list[str]) -> list[dict]:
@@ -114,6 +118,8 @@ class PeerExchange:
         for memory_id, entry in manifest.get("items", {}).items():
             if memory_id in local:
                 continue  # this device's own memory; the cloud settles revisions, not peers
+            if not may_see(entry, service.role):
+                continue  # still awaiting a supervisor; this device is not one
             if entry.get("status") == "deleted":
                 if memory_id in replica:
                     service.replica.delete([memory_id])

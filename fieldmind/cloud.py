@@ -103,7 +103,8 @@ class Cloud:
         while True:
             records, offset = self.client.scroll(
                 self.collection, scroll_filter=flt, limit=512, offset=offset,
-                with_payload=["rev", "status", "tombstone", "device_id"], with_vectors=False)
+                with_payload=["rev", "status", "tombstone", "device_id", "review", "priority", "reviewed_by",
+                              "reviewed_at", "review_reason"], with_vectors=False)
             for record in records:
                 out[str(record.id)] = record.payload or {}
             if offset is None:
