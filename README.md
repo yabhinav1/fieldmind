@@ -293,3 +293,8 @@ docs/           deck, requirement mapping, pitch notes, video script, screenshot
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+PROJECT CONTRIBUTORS:
+• Abhinav Yadav
+• Aniket Tiwari
+• Jatin Rohilla
